@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pdfplumber
+pymupdf
+requests
+langchain
+langchain-community
+pymilvus
+dashscope

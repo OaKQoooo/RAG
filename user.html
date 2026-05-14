@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户端 - 工程规范智能服务平台</title>
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-topbar">
+        <button
+          class="sidebar-toggle-btn"
+          type="button"
+          aria-label="折叠侧边栏"
+          aria-expanded="true"
+          title="折叠侧边栏"
+        >
+          <span class="sidebar-toggle-icon" aria-hidden="true">‹</span>
+        </button>
+      </div>
+
+      <div class="sidebar-content">
+        <div class="brand-block">
+          <!-- <p class="eyebrow">USER PORTAL</p> -->
+          <h1>工程问答助手</h1>
+        </div>
+
+        <nav class="nav-block">
+          <button class="nav-item active" data-view="chat">新建会话</button>
+          <button class="nav-item" data-view="docs">个人文档</button>
+          <button class="nav-item" data-view="settings">设置</button>
+        </nav>
+
+        <div class="sidebar-group">
+          <div class="section-title">最近对话</div>
+          <button class="history-chip">重力坝稳定性验算</button>
+          <button class="history-chip">施工缝处理要求</button>
+          <button class="history-chip">监测布置规范比对</button>
+        </div>
+
+        <div class="sidebar-footnote">
+          <p>当前登录：<span id="current-user-name">未登录</span></p>
+          <a href="./index.html">返回入口页</a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="panel-header">
+        <!-- <div>
+          <p class="eyebrow">USER DASHBOARD</p>
+          <h2 id="view-title">新建对话</h2>
+        </div> -->
+        <!-- <div class="header-actions">
+          <button class="soft-btn">新建会话</button>
+        </div> -->
+      </header>
+
+      <section class="view active" data-view-panel="chat">
+        <div class="workspace chat-workspace" id="chat-workspace">
+          <div class="chat-panel">
+            <div class="panel-toolbar">
+              <div class="header-actions toolbar-actions-right">
+                <label class="view-toggle" for="evidence-toggle">
+                  <span>启用原文定位</span>
+                  <input type="checkbox" id="evidence-toggle">
+                </label>
+                <button class="soft-btn">导出记录</button>
+              </div>
+            </div>
+
+            <div class="message-stream" id="message-stream">
+              <div class="chat-empty-state" id="chat-empty-state">
+                <strong>开始一段新对话</strong>
+                <p>输入你的工程问题后，系统会在这里返回回答。</p>
+              </div>
+            </div>
+
+            <div class="suggestion-row" id="suggestion-row"></div>
+
+            <div class="composer">
+              <textarea id="composer-input" placeholder="请输入工程问题，例如：施工缝处理有哪些强制要求？"></textarea>
+              <div class="composer-actions">
+                <button class="primary-btn" id="send-message">提交问题</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel evidence-panel" id="evidence-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>原文定位可视化</h3>
+              </div>
+              <div class="pill">Top 3 命中</div>
+            </div>
+
+            <div class="evidence-stack"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="docs">
+        <div class="workspace">
+          <div class="content-grid single-focus">
+            <div class="glass-panel upload-panel">
+              <div class="panel-toolbar">
+                <div>
+                  <h3>上传个人规范文档</h3>
+                </div>
+                <div class="pill">支持批量上传</div>
+              </div>
+
+              <div class="upload-dropzone">
+                <div class="upload-icon">PDF</div>
+                <p>拖拽文件到此区域，或点击选择文件</p>
+                <button class="primary-btn">选择文件</button>
+              </div>
+
+              <div class="upload-list" id="user-upload-list"></div>
+            </div>
+
+            <div class="glass-panel doc-table-panel">
+              <div class="panel-toolbar">
+                <div>
+                  <h3>我的文档</h3>
+                </div>
+                <input class="table-search" placeholder="搜索文件名">
+              </div>
+
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>文件名称</th>
+                    <th>处理状态</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="user-documents-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="settings">
+        <div class="workspace settings-stack">
+          <div class="glass-panel settings-card">
+            <div class="panel-toolbar">
+              <div>
+                <h3>账号信息</h3>
+              </div>
+            </div>
+
+            <div class="account-fields">
+              <label class="account-field">
+                <span>用户名</span>
+                <input type="text" id="profile-username" placeholder="user_1">
+              </label>
+              <div class="account-field">
+                <span>手机号</span>
+                <div class="phone-display-row">
+                  <span class="masked-phone" id="profile-phone-display">未绑定</span>
+                  <button class="soft-btn compact-action-btn" id="open-phone-modal-btn" type="button">修改</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="inline-actions">
+              <button class="soft-btn" id="cancel-profile-btn">取消</button>
+              <button class="primary-btn" id="save-profile-btn">保存资料</button>
+            </div>
+            <p class="settings-message" id="profile-message"></p>
+          </div>
+
+          <div class="glass-panel settings-card">
+            <div class="panel-toolbar">
+              <div>
+                <h3>界面偏好</h3>
+              </div>
+            </div>
+
+            <div class="toggle-list">
+              <label class="toggle-row">
+                <span>夜间模式</span>
+                <input type="checkbox" id="theme-toggle">
+              </label>
+              <label class="toggle-row">
+                <span>显示推荐问题</span>
+                <input type="checkbox" checked>
+              </label>
+            </div>
+          </div>
+
+          <div class="glass-panel settings-card">
+            <div class="panel-toolbar">
+              <div>
+                <h3>数据管理</h3>
+              </div>
+            </div>
+
+            <div class="inline-actions">
+              <button class="danger-btn" id="clear-history-btn">清空会话历史</button>
+            </div>
+            <p class="settings-message" id="history-message"></p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hide" id="phone-modal" role="dialog" aria-modal="true" aria-labelledby="phone-modal-title">
+    <div class="settings-modal">
+      <div class="modal-header">
+        <h3 id="phone-modal-title">验证当前手机号</h3>
+        <button class="icon-text-btn" id="close-phone-modal-btn" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="phone-modal-step" data-phone-step="verify-current">
+        <p class="modal-phone-text">当前手机号：<span id="modal-current-phone">未绑定</span></p>
+        <label class="code-input-row">
+          <span>验证码</span>
+          <div class="code-input-action">
+            <input type="text" id="modal-old-phone-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+            <button class="soft-btn" id="modal-send-old-code-btn" type="button">发送验证码</button>
+          </div>
+        </label>
+        <p class="settings-message" id="modal-phone-message"></p>
+        <div class="modal-actions">
+          <button class="soft-btn" id="modal-cancel-phone-btn" type="button">取消</button>
+          <button class="primary-btn" id="modal-next-phone-btn" type="button">下一步</button>
+        </div>
+      </div>
+
+      <div class="phone-modal-step hide" data-phone-step="bind-new">
+        <label class="modal-field">
+          <span>新手机号</span>
+          <input type="tel" id="modal-new-phone" maxlength="11" inputmode="numeric" autocomplete="tel">
+        </label>
+        <label class="code-input-row">
+          <span>验证码</span>
+          <div class="code-input-action">
+            <input type="text" id="modal-new-phone-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code">
+            <button class="soft-btn" id="modal-send-new-code-btn" type="button">发送验证码</button>
+          </div>
+        </label>
+        <div class="modal-actions">
+          <button class="soft-btn" id="modal-back-phone-btn" type="button">上一步</button>
+          <button class="primary-btn" id="modal-finish-phone-btn" type="button">完成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./assets/common.js"></script>
+  <script src="./assets/user.js"></script>
+</body>
+</html>
