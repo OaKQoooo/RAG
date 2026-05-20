@@ -527,10 +527,8 @@ if (uploadButton) {
     const formData = new FormData();
     [...input.files].forEach((file) => formData.append('files', file));
     try {
-      const token = localStorage.getItem('dam_rag_token') || '';
       const response = await fetch(`${API_BASE}/documents/upload?userId=${user.id}&visibility=private`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData
       });
       if (!response.ok) throw new Error(await response.text());

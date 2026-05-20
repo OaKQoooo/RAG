@@ -7,7 +7,15 @@ import com.example.damrag.dto.ChatDtos.RagChatResponse;
 import com.example.damrag.dto.ChatDtos.ReferenceItem;
 import com.example.damrag.dto.ChatDtos.ChatTurn;
 import com.example.damrag.dto.DocumentDtos.IngestResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -21,9 +29,19 @@ import org.springframework.web.client.RestClient;
 public class RagClient implements RagGateway {
     private final RestClient restClient;
     private final String serviceUrl;
+    private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
 
-    public RagClient(RestClient.Builder builder, @Value("${rag.service-url}") String serviceUrl) {
+    public RagClient(
+            RestClient.Builder builder,
+            @Value("${rag.service-url}") String serviceUrl,
+            ObjectMapper objectMapper
+    ) {
         this.serviceUrl = serviceUrl;
+        this.objectMapper = objectMapper;
+        this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .build();
         this.restClient = builder.baseUrl(serviceUrl).build();
     }
 
@@ -47,12 +65,7 @@ public class RagClient implements RagGateway {
                 documentIds == null ? List.of() : documentIds,
                 restrictDocuments
         );
-        RagChatResponse ragResponse = restClient.post()
-                .uri("/api/rag/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ragRequest)
-                .retrieve()
-                .body(RagChatResponse.class);
+        RagChatResponse ragResponse = postChat(ragRequest);
 
         if (ragResponse == null) {
             throw new IllegalStateException("RAG 服务没有返回结果");
@@ -116,6 +129,36 @@ public class RagClient implements RagGateway {
             return Long.valueOf(value);
         } catch (NumberFormatException ex) {
             return null;
+        }
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("RAG 请求序列化失败", ex);
+        }
+    }
+
+    private RagChatResponse postChat(RagChatRequest ragRequest) {
+        String payload = toJson(ragRequest);
+        HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/chat"))
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+            }
+            return objectMapper.readValue(response.body(), RagChatResponse.class);
+        } catch (IOException ex) {
+            throw new IllegalStateException("RAG 服务请求失败：" + ex.getMessage(), ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RAG 服务请求被中断", ex);
         }
     }
 }
