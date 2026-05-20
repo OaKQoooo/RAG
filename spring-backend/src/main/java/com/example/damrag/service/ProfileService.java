@@ -5,7 +5,9 @@ import com.example.damrag.dto.ProfileDtos.ProfileUpdateRequest;
 import com.example.damrag.dto.ProfileDtos.Result;
 import com.example.damrag.dto.ProfileDtos.UserProfile;
 import com.example.damrag.model.QaConversation;
+import com.example.damrag.model.QaMessage;
 import com.example.damrag.model.User;
+import com.example.damrag.repository.MessageReferenceRepository;
 import com.example.damrag.repository.QaConversationRepository;
 import com.example.damrag.repository.QaMessageRepository;
 import com.example.damrag.repository.UserRepository;
@@ -23,15 +25,18 @@ public class ProfileService {
     private final UserRepository userRepository;
     private final QaConversationRepository conversationRepository;
     private final QaMessageRepository messageRepository;
+    private final MessageReferenceRepository referenceRepository;
 
     public ProfileService(
             UserRepository userRepository,
             QaConversationRepository conversationRepository,
-            QaMessageRepository messageRepository
+            QaMessageRepository messageRepository,
+            MessageReferenceRepository referenceRepository
     ) {
         this.userRepository = userRepository;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
+        this.referenceRepository = referenceRepository;
     }
 
     public UserProfile getProfile(Long userId) {
@@ -81,6 +86,13 @@ public class ProfileService {
         List<QaConversation> conversations = conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
         List<Long> conversationIds = conversations.stream().map(QaConversation::getId).toList();
         if (!conversationIds.isEmpty()) {
+            List<Long> messageIds = messageRepository.findByConversationIdIn(conversationIds)
+                    .stream()
+                    .map(QaMessage::getId)
+                    .toList();
+            if (!messageIds.isEmpty()) {
+                referenceRepository.deleteByMessageIdIn(messageIds);
+            }
             messageRepository.deleteByConversationIdIn(conversationIds);
         }
         conversationRepository.deleteByUserId(userId);

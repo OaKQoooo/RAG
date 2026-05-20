@@ -1,29 +1,29 @@
 """
-Step 3: 向量入库 (LangChain 版)
+Step 3: 向量入库（Chroma 版）
 
 流程：读取 step2 输出的 all_docs_final.json
       → 构建 LangChain Document 对象
       → DashScopeEmbeddings 生成稠密向量
-      → 分批写入 Milvus 向量数据库
+      → 写入本地 Chroma 向量数据库
 """
 
 import argparse
 import json
 import os
-import time
+import shutil
 from pathlib import Path
 
+from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_community.vectorstores import Milvus
 from langchain_core.documents import Document
 
 from rag_config import (
+    CHROMA_DIR,
     DASHSCOPE_API_KEY,
     EMBEDDING_MODEL,
     FINAL_JSON_PATH,
     MILVUS_COLLECTION,
-    MILVUS_HOST,
-    MILVUS_PORT,
+    ensure_runtime_dirs,
 )
 
 # --- 配置区 ---
@@ -32,8 +32,8 @@ if DASHSCOPE_API_KEY:
 
 COLLECTION_NAME = MILVUS_COLLECTION
 JSON_PATH = FINAL_JSON_PATH
-CHUNK_SIZE = 8000   # 单条文本最大字符数
-BATCH_SIZE = 25     # 每批向量化的文档数（控制 DashScope QPS）
+PERSIST_DIR = CHROMA_DIR
+CHUNK_SIZE = 1000   # 单条文本最大字符数
 
 
 def flatten_items(node: dict, items: list) -> None:
@@ -55,6 +55,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
         source = l1.get("source", "Unknown")
         chapter = l1.get("title", "Unknown")
         document_id = l1.get("document_id")
+        uploaded_by = l1.get("uploaded_by")
 
         items: list[dict] = []
         flatten_items(l1, items)
@@ -77,7 +78,8 @@ def load_documents(json_path: str | Path) -> list[Document]:
                     Document(
                         page_content=chunk,
                         metadata={
-                            "document_id": document_id,
+                            "document_id": str(document_id) if document_id is not None else "",
+                            "uploaded_by": str(uploaded_by) if uploaded_by is not None else "",
                             "clause_key": f"{source}::{clause_id}"[:500],
                             "source_file": source[:500],
                             "clause_id": cid[:100],
@@ -87,8 +89,8 @@ def load_documents(json_path: str | Path) -> list[Document]:
                             "page": page,
                             "bbox": bbox,
                             "bbox_json": bbox,
-                            "page_width": item.get("page_width"),
-                            "page_height": item.get("page_height"),
+                            "page_width": item.get("page_width") or 0,
+                            "page_height": item.get("page_height") or 0,
                         },
                     )
                 )
@@ -104,12 +106,17 @@ def ingest(
     if not DASHSCOPE_API_KEY:
         raise RuntimeError("缺少 DASHSCOPE_API_KEY 环境变量，无法生成向量。")
 
+    ensure_runtime_dirs()
+
     json_path = Path(json_path)
     if not json_path.exists():
-        print(f"错误：找不到文件 {JSON_PATH}，请先运行 step2.py")
+        print(f"错误：找不到文件 {json_path}，请先运行 step2.py")
         return 0
 
-    # 初始化 DashScope 嵌入模型
+    if drop_old and PERSIST_DIR.exists():
+        shutil.rmtree(PERSIST_DIR)
+        PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+
     embeddings = DashScopeEmbeddings(
         model=EMBEDDING_MODEL,
         dashscope_api_key=DASHSCOPE_API_KEY,
@@ -117,40 +124,28 @@ def ingest(
 
     print("正在加载文档...")
     docs = load_documents(json_path)
-    print(f"共加载 {len(docs)} 个文档块，开始分批写入 Milvus...")
+    print(f"共加载 {len(docs)} 个文档块，开始写入 Chroma...")
     if not docs:
         return 0
 
-    connection_args = {"host": MILVUS_HOST, "port": MILVUS_PORT}
+    vector_store = Chroma.from_documents(
+        documents=docs,
+        embedding=embeddings,
+        collection_name=collection_name,
+        persist_directory=str(PERSIST_DIR),
+    )
+    _ = vector_store
 
-    for i in range(0, len(docs), BATCH_SIZE):
-        batch = docs[i : i + BATCH_SIZE]
-        drop_for_batch = drop_old and i == 0  # 首批创建集合，后续批次追加
-
-        Milvus.from_documents(
-            documents=batch,
-            embedding=embeddings,
-            connection_args=connection_args,
-            collection_name=collection_name,
-            drop_old=drop_for_batch,
-            text_field="content",
-        )
-
-        done = min(i + BATCH_SIZE, len(docs))
-        pct = done * 100 // len(docs)
-        print(f"  进度: {done}/{len(docs)} ({pct}%)")
-
-        if i + BATCH_SIZE < len(docs):
-            time.sleep(1)  # QPS 保护
-
-    print(f"\n✅ 入库完成！集合名称: {collection_name}")
+    print(f"\n✅ Chroma 入库完成！")
+    print(f"📁 向量库目录: {PERSIST_DIR}")
+    print(f"📦 集合名称: {collection_name}")
     return len(docs)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Step3 向量化入库")
+    parser = argparse.ArgumentParser(description="Step3 Chroma 向量化入库")
     parser.add_argument("--json", default=str(JSON_PATH), help="step2 输出 JSON")
-    parser.add_argument("--collection", default=COLLECTION_NAME, help="Milvus 集合名称")
+    parser.add_argument("--collection", default=COLLECTION_NAME, help="Chroma 集合名称")
     parser.add_argument("--append", action="store_true", help="追加写入，不删除旧集合")
     return parser.parse_args()
 

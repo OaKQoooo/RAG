@@ -8,18 +8,18 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import fitz
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors.base import BaseDocumentCompressor
+from langchain_classic.retrievers import ContextualCompressionRetriever
+from langchain_classic.retrievers.document_compressors.base import BaseDocumentCompressor
 from langchain_community.chat_models import ChatTongyi
 from langchain_community.embeddings import DashScopeEmbeddings
-from langchain_community.vectorstores import Milvus
+from langchain_chroma import Chroma
 from langchain_core.callbacks.manager import Callbacks
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, HumanMessage
@@ -31,11 +31,10 @@ import step2
 import step3
 from rag_config import (
     CHAT_MODEL,
+    CHROMA_DIR,
     DASHSCOPE_API_KEY,
     EMBEDDING_MODEL,
     MILVUS_COLLECTION,
-    MILVUS_HOST,
-    MILVUS_PORT,
     PDF_DIR,
     RERANK_MODEL,
     SNAPSHOT_DIR,
@@ -69,8 +68,13 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     question: str
     history: list[ChatTurn] = Field(default_factory=list)
-    top_k: int = 5
+    top_k: int = Field(default=5, alias="top_k")
     enable_evidence: bool = Field(default=False, alias="enableEvidence")
+    enable_suggestions: bool = Field(default=True, alias="enableSuggestions")
+    user_id: Optional[Any] = Field(default=None, alias="userId")
+    knowledge_scope: str = Field(default="ALL", alias="knowledgeScope")
+    document_ids: list[Any] = Field(default_factory=list, alias="documentIds")
+    restrict_documents: bool = Field(default=False, alias="restrictDocuments")
 
 
 class ReferenceItem(BaseModel):
@@ -81,6 +85,7 @@ class ReferenceItem(BaseModel):
     bbox_json: str = "[]"
     image_url: Optional[str] = None
     content_preview: str = ""
+    document_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -219,11 +224,13 @@ class RagEngine:
             model=EMBEDDING_MODEL,
             dashscope_api_key=DASHSCOPE_API_KEY,
         )
-        vector_store = Milvus(
-            embedding_function=embeddings,
-            connection_args={"host": MILVUS_HOST, "port": MILVUS_PORT},
+        if not CHROMA_DIR.exists():
+            raise RuntimeError(f"Chroma 向量库不存在，请先上传并入库文档：{CHROMA_DIR}")
+
+        vector_store = Chroma(
             collection_name=MILVUS_COLLECTION,
-            text_field="content",
+            embedding_function=embeddings,
+            persist_directory=str(CHROMA_DIR),
         )
         base_retriever = vector_store.as_retriever(
             search_type="similarity",
@@ -277,12 +284,20 @@ class RagEngine:
                         bbox_json=bbox_json,
                         image_url=build_pdf_snapshot(source_file, page, bbox_json) if enable_evidence else None,
                         content_preview=doc.page_content[:240],
+                        document_id=str(m.get("document_id")) if m.get("document_id") is not None else None,
                     )
                 )
         return "\n\n".join(parts), refs
 
     def ask(self, request: ChatRequest) -> ChatResponse:
-        docs = self.retriever.invoke(request.question)[: request.top_k]
+        docs = self._filter_documents(self.retriever.invoke(request.question), request)[: request.top_k]
+        if not docs:
+            suggestions = build_suggestions([]) if request.enable_suggestions else []
+            return ChatResponse(
+                answer="抱歉，当前规范库中未查阅到关于此问题的相关明确规定。",
+                references=[],
+                suggestions=suggestions,
+            )
         context, refs = self.format_docs(docs, enable_evidence=request.enable_evidence)
         answer = self.chain.invoke(
             {
@@ -291,8 +306,20 @@ class RagEngine:
                 "chat_history": _lc_history(request.history),
             }
         )
-        suggestions = build_suggestions(refs)
+        suggestions = build_suggestions(refs) if request.enable_suggestions else []
         return ChatResponse(answer=answer, references=refs, suggestions=suggestions)
+
+    def _filter_documents(self, docs: list[Document], request: ChatRequest) -> list[Document]:
+        if not request.restrict_documents:
+            return docs
+        allowed_ids = {str(item) for item in request.document_ids if item is not None}
+        if not allowed_ids:
+            return []
+        return [
+            doc
+            for doc in docs
+            if str(doc.metadata.get("document_id") or "") in allowed_ids
+        ]
 
 
 def build_suggestions(refs: list[ReferenceItem]) -> list[str]:
@@ -331,9 +358,22 @@ def get_engine() -> RagEngine:
 def health():
     return {
         "status": "ok",
+        "vector_store": "chroma",
         "collection": MILVUS_COLLECTION,
         "pdf_dir": str(PDF_DIR),
+        "chroma_dir": str(CHROMA_DIR),
+        "chroma_exists": CHROMA_DIR.exists(),
         "dashscope_configured": bool(DASHSCOPE_API_KEY),
+    }
+
+
+@app.get("/")
+def root():
+    return {
+        "service": "Dam Standard RAG Service",
+        "status": "ok",
+        "health": "/health",
+        "docs": "/docs",
     }
 
 

@@ -21,6 +21,7 @@ PDF_DIR = _path_from_env("RAG_PDF_DIR", PROJECT_ROOT / "Dam_Docs")
 STEP1_OUTPUT_DIR = _path_from_env("RAG_STEP1_OUTPUT_DIR", CODE_DIR / "step1_outputs")
 FINAL_JSON_PATH = _path_from_env("RAG_FINAL_JSON_PATH", CODE_DIR / "all_docs_final.json")
 SNAPSHOT_DIR = _path_from_env("RAG_SNAPSHOT_DIR", CODE_DIR / "runtime" / "snapshots")
+CHROMA_DIR = _path_from_env("RAG_CHROMA_DIR", CODE_DIR / "runtime" / "chroma_db")
 
 MILVUS_HOST = os.getenv("MILVUS_HOST", "127.0.0.1")
 MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
@@ -35,3 +36,4 @@ def ensure_runtime_dirs() -> None:
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     STEP1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    CHROMA_DIR.mkdir(parents=True, exist_ok=True)

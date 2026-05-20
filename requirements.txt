@@ -5,6 +5,10 @@ pdfplumber
 pymupdf
 requests
 langchain
+langchain-classic
 langchain-community
+langchain-core
 pymilvus
 dashscope
+chromadb
+langchain-chroma

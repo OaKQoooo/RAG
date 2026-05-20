@@ -2,13 +2,13 @@
 
 这套代码基于 [`plan.md`](D:/code/RAG/v4.0/v4.0/plan.md) 和 [`table.md`](D:/code/RAG/v4.0/v4.0/table.md) 搭建，当前包含：
 
-- `index.html`：入口页，含登录/注册切换与角色入口
-- `user.html`：用户端页面，包含对话、个人文档、设置
-- `admin.html`：管理员端页面，包含总览、文档库管理、用户管理
-- `assets/styles.css`：公共样式
-- `assets/common.js`：公共交互
-- `assets/user.js`：用户端交互
-- `assets/admin.js`：管理员端交互
+- `frontend/index.html`：入口页，含登录/注册切换与角色入口
+- `frontend/user.html`：用户端页面，包含对话、个人文档、设置
+- `frontend/admin.html`：管理员端页面，包含总览、文档库管理、用户管理
+- `frontend/assets/css/styles.css`：公共样式
+- `frontend/assets/js/common.js`：公共交互
+- `frontend/assets/js/user.js`：用户端交互
+- `frontend/assets/js/admin.js`：管理员端交互
 
 ## 页面与数据表的对应关系
 
@@ -18,7 +18,7 @@
   - `qa_conversation`
   - `qa_message`
 - 原文溯源区依赖：
-  - `kb_chunk` 在 Milvus 中的 metadata
+  - Chroma 中 Document metadata
   - `kb_clause.page`
   - `kb_clause.bbox_json`
 - 个人文档区对应：
@@ -58,15 +58,15 @@
 
 直接在浏览器中打开以下文件即可：
 
-- `code/index.html`
-- `code/user.html`
-- `code/admin.html`
+- `code/frontend/index.html`
+- `code/frontend/user.html`
+- `code/frontend/admin.html`
 
 ## 后端联通方式
 
 本次后端拆成两层：
 
-- `rag_service.py`：Python RAG 服务，负责 PDF 入库、Milvus 检索、DashScope 生成、PDF 原文截图。
+- `rag_service.py`：Python RAG 服务，负责 PDF 入库、Chroma 检索、DashScope 生成、PDF 原文截图。
 - `spring-backend/`：Spring Boot 业务服务，负责登录注册、会话、消息、文档管理、管理员接口，并调用 Python RAG 服务。
 
 Windows 下建议启动顺序：
@@ -87,9 +87,9 @@ mvn spring-boot:run
 
 然后打开：
 
-- `code/index.html`
-- `code/user.html`
-- `code/admin.html`
+- `code/frontend/index.html`
+- `code/frontend/user.html`
+- `code/frontend/admin.html`
 
 前端默认请求 `http://localhost:8080/api`，Spring 默认请求 Python RAG 服务 `http://127.0.0.1:8000`。
 

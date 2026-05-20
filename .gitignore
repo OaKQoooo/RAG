@@ -1,0 +1,17 @@
+# Python runtime/cache files
+__pycache__/
+*.py[cod]
+
+# Local runtime data
+runtime/
+
+# Spring Boot / Maven build outputs
+spring-backend/target/
+
+# Local H2 database files
+spring-backend/data/*.db
+spring-backend/data/*.db.*
+spring-backend/data/*.trace.db
+spring-backend/data/*.lock.db
+spring-backend/data/*.mv.db
+spring-backend/data/*.mv.db.*

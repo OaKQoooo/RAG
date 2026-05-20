@@ -75,6 +75,7 @@ def parse_step1_json(path: Path) -> list[dict]:
     meta, pages = _read_step1_file(path)
     source_display = clean_source_name(meta.get("source_pdf") or path.name)
     document_id = meta.get("document_id")
+    uploaded_by = meta.get("uploaded_by")
 
     print(f"📦 正在处理文档: {source_display}")
     doc_structure = []
@@ -113,7 +114,7 @@ def parse_step1_json(path: Path) -> list[dict]:
                 m2 = re.match(L2_PATTERN, raw_line)
                 m3 = re.match(L3_PATTERN, raw_line)
 
-                common = {"source": source_display, "document_id": document_id}
+                common = {"source": source_display, "document_id": document_id, "uploaded_by": uploaded_by}
                 if m1:
                     cur_l1 = {"title": raw_line, "sub_articles": [], "type": "L1", **common}
                     doc_structure.append(cur_l1)

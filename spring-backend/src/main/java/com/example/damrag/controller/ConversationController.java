@@ -2,105 +2,82 @@ package com.example.damrag.controller;
 
 import com.example.damrag.dto.ChatDtos.ChatRequest;
 import com.example.damrag.dto.ChatDtos.ChatResponse;
-import com.example.damrag.model.QaConversation;
-import com.example.damrag.model.QaMessage;
-import com.example.damrag.repository.QaConversationRepository;
-import com.example.damrag.repository.QaMessageRepository;
-import com.example.damrag.service.RagClient;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.damrag.dto.ChatDtos.ConversationView;
+import com.example.damrag.dto.ChatDtos.CreateConversationRequest;
+import com.example.damrag.dto.ChatDtos.MessageView;
+import com.example.damrag.model.User;
+import com.example.damrag.service.AuthService;
+import com.example.damrag.service.ChatService;
+import com.example.damrag.service.ConversationService;
+import com.example.damrag.service.MessageService;
 import java.util.List;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api")
 public class ConversationController {
-    private final QaConversationRepository conversationRepository;
-    private final QaMessageRepository messageRepository;
-    private final RagClient ragClient;
-    private final ObjectMapper objectMapper;
+    private final ChatService chatService;
+    private final ConversationService conversationService;
+    private final MessageService messageService;
+    private final AuthService authService;
 
     public ConversationController(
-            QaConversationRepository conversationRepository,
-            QaMessageRepository messageRepository,
-            RagClient ragClient,
-            ObjectMapper objectMapper
+            ChatService chatService,
+            ConversationService conversationService,
+            MessageService messageService,
+            AuthService authService
     ) {
-        this.conversationRepository = conversationRepository;
-        this.messageRepository = messageRepository;
-        this.ragClient = ragClient;
-        this.objectMapper = objectMapper;
+        this.chatService = chatService;
+        this.conversationService = conversationService;
+        this.messageService = messageService;
+        this.authService = authService;
     }
 
     @GetMapping("/conversations")
-    public List<QaConversation> conversations(@RequestParam Long userId) {
-        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId);
+    public List<ConversationView> conversations(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestParam(required = false) Long userId
+    ) {
+        return conversationService.listConversations(currentUserId(token, userId));
     }
 
     @PostMapping("/conversations")
-    public QaConversation createConversation(@RequestParam Long userId, @RequestParam(defaultValue = "新会话") String title) {
-        QaConversation conversation = new QaConversation();
-        conversation.setUserId(userId);
-        conversation.setTitle(title);
-        return conversationRepository.save(conversation);
+    public ConversationView createConversation(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String title,
+            @RequestBody(required = false) CreateConversationRequest request
+    ) {
+        Long resolvedUserId = currentUserId(token, request != null && request.userId() != null ? request.userId() : userId);
+        String resolvedTitle = request != null && request.title() != null ? request.title() : title;
+        return conversationService.createConversation(resolvedUserId, resolvedTitle);
     }
 
     @GetMapping("/conversations/{id}/messages")
-    public List<QaMessage> messages(@PathVariable Long id) {
-        return messageRepository.findByConversationIdOrderByCreatedAtAsc(id);
+    public List<MessageView> messages(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @PathVariable Long id,
+            @RequestParam(required = false) Long userId
+    ) {
+        Long resolvedUserId = currentUserId(token, userId);
+        conversationService.checkOwner(resolvedUserId, id);
+        return messageService.listMessages(id);
     }
 
     @PostMapping("/chat")
-    public ChatResponse chat(@RequestBody ChatRequest request) {
-        if (request.question() == null || request.question().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "问题不能为空");
-        }
-
-        QaConversation conversation = resolveConversation(request);
-        saveMessage(conversation.getId(), "user", request.question(), null);
-
-        ChatResponse response = ragClient.ask(conversation.getId(), request);
-        saveMessage(conversation.getId(), "assistant", response.answer(), toJson(response.references()));
-
-        conversation.setTitle(titleFor(conversation.getTitle(), request.question()));
-        conversationRepository.save(conversation);
-        return response;
+    public ChatResponse chat(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestBody ChatRequest request
+    ) {
+        Long requestUserId = request == null ? null : request.userId();
+        return chatService.ask(currentUserId(token, requestUserId), request);
     }
 
-    private QaConversation resolveConversation(ChatRequest request) {
-        if (request.conversationId() != null) {
-            return conversationRepository.findById(request.conversationId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
+    private Long currentUserId(String token, Long fallbackUserId) {
+        if (token != null && !token.isBlank()) {
+            User user = authService.validateToken(token);
+            return user.getId();
         }
-        QaConversation conversation = new QaConversation();
-        conversation.setUserId(request.userId() == null ? 1L : request.userId());
-        conversation.setTitle(titleFor(null, request.question()));
-        return conversationRepository.save(conversation);
-    }
-
-    private void saveMessage(Long conversationId, String role, String content, String referenceJson) {
-        QaMessage message = new QaMessage();
-        message.setConversationId(conversationId);
-        message.setRole(role);
-        message.setContent(content);
-        message.setReferenceJson(referenceJson);
-        messageRepository.save(message);
-    }
-
-    private String toJson(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
-            return "[]";
-        }
-    }
-
-    private String titleFor(String currentTitle, String question) {
-        if (currentTitle != null && !currentTitle.isBlank() && !"新会话".equals(currentTitle)) {
-            return currentTitle;
-        }
-        return question.length() > 24 ? question.substring(0, 24) : question;
+        return fallbackUserId == null ? 1L : fallbackUserId;
     }
 }
