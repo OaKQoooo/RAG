@@ -1,17 +1,18 @@
 """
-Step 3: 向量入库（Chroma 版）
-
-流程：读取 step2 输出的 all_docs_final.json
-      → 构建 LangChain Document 对象
-      → DashScopeEmbeddings 生成稠密向量
-      → 写入本地 Chroma 向量数据库
+Step 3: 向量入库（Chroma 版）优化版
+优化点：
+1. 超长文本按段落+句子拆分，避免破坏语义
+2. 每章入库文档块数量统计
+3. 打印最大 chunk 长度
 """
 
 import argparse
 import json
 import os
 import shutil
+import re
 from pathlib import Path
+from collections import Counter
 
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
@@ -70,8 +71,32 @@ def load_documents(json_path: str | Path) -> list[Document]:
             bbox_json = item.get("bbox_json") or json.dumps(item.get("final_bbox", []), ensure_ascii=False)
             bbox = bbox_json[:1000]
 
-            # 超长文本按 CHUNK_SIZE 切块
-            chunks = [content[i:i + CHUNK_SIZE] for i in range(0, len(content), CHUNK_SIZE)]
+            # ==========================
+            # 优化切分逻辑：先按段落拆，再按句号/分号拆
+            # ==========================
+            paras = re.split(r'\n{2,}', content)
+            chunks = []
+            for para in paras:
+                para = para.strip()
+                if not para:
+                    continue
+                if len(para) <= CHUNK_SIZE:
+                    chunks.append(para)
+                else:
+                    # 按句号/分号拆
+                    sentences = re.split(r'(?<=[。；;])', para)
+                    buf = ""
+                    for s in sentences:
+                        s = s.strip()
+                        if len(buf) + len(s) <= CHUNK_SIZE:
+                            buf += s
+                        else:
+                            if buf:
+                                chunks.append(buf)
+                            buf = s
+                    if buf:
+                        chunks.append(buf)
+
             for idx, chunk in enumerate(chunks):
                 cid = f"{clause_id}_p{idx}" if len(chunks) > 1 else clause_id
                 docs.append(
@@ -135,6 +160,15 @@ def ingest(
         persist_directory=str(PERSIST_DIR),
     )
     _ = vector_store
+
+    # ==========================
+    # 优化统计信息：每章入库文档块数量 + 最大 chunk 长度
+    # ==========================
+    chapter_counts = Counter(doc.metadata["chapter"] for doc in docs)
+    print("\n📊 各章入库文档块数量：")
+    for chap, cnt in chapter_counts.items():
+        print(f"  {chap}: {cnt}")
+    print(f"📦 最大 chunk 长度: {max(len(doc.page_content) for doc in docs)}")
 
     print(f"\n✅ Chroma 入库完成！")
     print(f"📁 向量库目录: {PERSIST_DIR}")

@@ -81,8 +81,12 @@ def parse_step1_json(path: Path) -> list[dict]:
     doc_structure = []
     cur_l1 = cur_l2 = cur_l3 = None
     content_started = False
+    stop_parsing = False
 
     for page in pages:
+        if stop_parsing:
+            break
+            
         p_num = int(page["page"])
         page_width = page.get("page_width")
         page_height = page.get("page_height")
@@ -94,12 +98,17 @@ def parse_step1_json(path: Path) -> list[dict]:
                 if not raw_line:
                     continue
 
+                # 遇到条文说明后停止解析正文，避免条文说明重复正文条款号
+                if content_started and clean_line in {"条文说明", "本规范用词说明", "引用标准名录"}:
+                    print(f"  -> [STOP] 在第 {p_num} 页停止解析 (匹配词: '{clean_line}')")
+                    stop_parsing = True
+                    break
+
                 if not content_started:
-                    is_foreword = p_num < 15 and "前言" in clean_line and len(clean_line) < 10
-                    is_start_title = p_num < 15 and re.match(r"^[1一](总则|范围|概述|基本规定)", clean_line)
+                    is_start_title = p_num < 20 and re.match(r"^[1一](总则|范围|概述|基本规定)", clean_line)
                     is_direct_clause = re.match(r"^1\.0\.1", clean_line)
 
-                    if is_foreword or is_start_title or is_direct_clause:
+                    if is_start_title or is_direct_clause:
                         content_started = True
                         print(f"  -> [OK] 在第 {p_num} 页开启解析 (匹配词: '{clean_line[:10]}')")
                     else:
