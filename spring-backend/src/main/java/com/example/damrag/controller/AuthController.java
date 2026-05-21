@@ -8,14 +8,19 @@ import com.example.damrag.dto.AuthDtos.UserView;
 import com.example.damrag.service.AuthService;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
+import com.example.damrag.dto.AuthDtos.SmsCodeRequest;
+import com.example.damrag.dto.AuthDtos.SmsCodeResponse;
+import com.example.damrag.service.SmsCodeService;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
     private final AuthService authService;
+    private final SmsCodeService smsCodeService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, SmsCodeService smsCodeService) {
         this.authService = authService;
+        this.smsCodeService = smsCodeService;
     }
 
     @PostMapping("/register")
@@ -31,6 +36,12 @@ public class AuthController {
     @PostMapping("/logout")
     public LogoutResult logout(@RequestHeader(value = "Authorization", required = false) String token) {
         return authService.logout(token);
+    }
+
+    @PostMapping("/sms-code")
+    public SmsCodeResponse sendSmsCode(@RequestBody SmsCodeRequest request) {
+        var result = smsCodeService.generate(request.phone(), request.scene());
+        return new SmsCodeResponse(result.message(), result.smsCode(), result.expireSeconds());
     }
 
     @GetMapping("/current")

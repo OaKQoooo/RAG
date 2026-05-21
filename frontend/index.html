@@ -471,18 +471,23 @@
     // ----- 演示验证码：后端当前统一校验 123456 -----
     // 登录页发送验证码
     async function sendLoginSmsCode(phone) {
-        return new Promise((resolve) => {
-            setTimeout(() => {
-                if (!isValidPhone(phone)) {
-                    resolve({ success: false, message: '手机号格式错误' });
-                    return;
-                }
-                loginLastSentCode = '123456';
-                loginCodePhone = phone;
-                console.log(`[登录] 演示验证码 123456 发送至 ${phone}`);
-                resolve({ success: true, message: '验证码已发送' });
-            }, 400);
+        const data = await requestJson('/auth/sms-code', {
+            method: 'POST',
+            body: JSON.stringify({
+                phone,
+                scene: 'login'
+            })
         });
+
+        loginLastSentCode = data.smsCode;
+        loginCodePhone = phone;
+
+        console.log(`[登录] 测试验证码 ${data.smsCode} 发送至 ${phone}`);
+        return {
+            success: true,
+            message: data.message || '验证码已发送',
+            smsCode: data.smsCode
+        };
     }
 
     async function onLoginGetCode() {
@@ -505,7 +510,7 @@
         try {
             const res = await sendLoginSmsCode(phone);
             if (res.success) {
-                showMessage(loginMsgDiv, `验证码已发送至 ${phone}，演示验证码：123456`, 'success');
+                showMessage(loginMsgDiv, `验证码已发送至 ${phone}，测试验证码：${res.smsCode}`, 'success');
                 startLoginCountdown(60);
                 loginSmsCodeInput.value = '';
                 loginSmsCodeInput.focus();
@@ -523,18 +528,23 @@
 
     // 注册页发送验证码
     async function sendRegSmsCode(phone) {
-        return new Promise((resolve) => {
-            setTimeout(() => {
-                if (!isValidPhone(phone)) {
-                    resolve({ success: false, message: '手机号格式错误' });
-                    return;
-                }
-                regLastSentCode = '123456';
-                regCodePhone = phone;
-                console.log(`[注册] 演示验证码 123456 发送至 ${phone}`);
-                resolve({ success: true, message: '验证码已发送' });
-            }, 400);
+        const data = await requestJson('/auth/sms-code', {
+            method: 'POST',
+            body: JSON.stringify({
+                phone,
+                scene: 'register'
+            })
         });
+
+        regLastSentCode = data.smsCode;
+        regCodePhone = phone;
+
+        console.log(`[注册] 测试验证码 ${data.smsCode} 发送至 ${phone}`);
+        return {
+            success: true,
+            message: data.message || '验证码已发送',
+            smsCode: data.smsCode
+        };
     }
 
     async function onRegGetCode() {
@@ -557,7 +567,7 @@
         try {
             const res = await sendRegSmsCode(phone);
             if (res.success) {
-                showMessage(regMsgDiv, '验证码已发送，演示验证码：123456', 'success');
+                showMessage(regMsgDiv, `验证码已发送，测试验证码：${res.smsCode}`, 'success');
                 startRegCountdown(60);
                 regSmsCodeInput.value = '';
                 regSmsCodeInput.focus();

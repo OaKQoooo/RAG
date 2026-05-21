@@ -16,23 +16,21 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class AuthService {
     private static final String PHONE_PATTERN = "^1[3-9]\\d{9}$";
-    private static final String DEMO_SMS_CODE = "123456";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SmsCodeService smsCodeService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, SmsCodeService smsCodeService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.smsCodeService = smsCodeService;
     }
 
     public AuthResponse register(RegisterRequest request) {
         String phone = normalizePhone(request.phone());
         if (!isValidPhone(phone)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "手机号格式不正确");
-        }
-        if (!isValidSmsCode(request.smsCode())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "验证码错误或失效");
         }
         if (request.password() == null || request.password().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "密码不能为空");
@@ -45,6 +43,12 @@ public class AuthService {
         }
         if (userRepository.existsByPhone(phone)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "该手机号已注册");
+        }
+
+        try {
+            smsCodeService.verify(phone, "register", request.smsCode());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
         }
 
         User user = new User();
@@ -67,8 +71,10 @@ public class AuthService {
             loginType = request.smsCode() == null || request.smsCode().isBlank() ? "password" : "sms";
         }
         if ("sms".equalsIgnoreCase(loginType) || "code".equalsIgnoreCase(loginType)) {
-            if (!isValidSmsCode(request.smsCode())) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "验证码错误或失效");
+            try {
+                smsCodeService.verify(phone, "login", request.smsCode());
+            } catch (IllegalArgumentException ex) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, ex.getMessage());
             }
         } else if (request.password() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "手机号或密码错误");
@@ -151,10 +157,6 @@ public class AuthService {
 
     private boolean isValidPhone(String phone) {
         return phone != null && phone.matches(PHONE_PATTERN);
-    }
-
-    private boolean isValidSmsCode(String smsCode) {
-        return DEMO_SMS_CODE.equals(smsCode);
     }
 
     private String displayName(String username, String phone) {
