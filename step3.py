@@ -7,16 +7,23 @@ Step 3: 向量入库（Chroma 版）优化版
 """
 
 import argparse
+import gc
 import json
 import os
 import shutil
 import re
+import time
 from pathlib import Path
 from collections import Counter
 
 from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.documents import Document
+
+try:
+    from chromadb.api.shared_system_client import SharedSystemClient
+except Exception:  # pragma: no cover - Chroma internal API may vary by version
+    SharedSystemClient = None
 
 from rag_config import (
     CHROMA_DIR,
@@ -35,6 +42,37 @@ COLLECTION_NAME = MILVUS_COLLECTION
 JSON_PATH = FINAL_JSON_PATH
 PERSIST_DIR = CHROMA_DIR
 CHUNK_SIZE = 1000   # 单条文本最大字符数
+
+
+def release_chroma_clients() -> None:
+    """Stop cached Chroma systems so Windows can release sqlite file locks."""
+    if SharedSystemClient is not None:
+        systems = list(getattr(SharedSystemClient, "_identifier_to_system", {}).values())
+        for system in systems:
+            try:
+                system.stop()
+            except Exception:
+                pass
+        try:
+            SharedSystemClient.clear_system_cache()
+        except Exception:
+            pass
+    gc.collect()
+
+
+def reset_chroma_dir(path: Path, retries: int = 8, delay: float = 0.5) -> None:
+    release_chroma_clients()
+    for attempt in range(retries):
+        try:
+            if path.exists():
+                shutil.rmtree(path)
+            path.mkdir(parents=True, exist_ok=True)
+            return
+        except PermissionError:
+            release_chroma_clients()
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay)
 
 
 def flatten_items(node: dict, items: list) -> None:
@@ -138,9 +176,8 @@ def ingest(
         print(f"错误：找不到文件 {json_path}，请先运行 step2.py")
         return 0
 
-    if drop_old and PERSIST_DIR.exists():
-        shutil.rmtree(PERSIST_DIR)
-        PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+    if drop_old:
+        reset_chroma_dir(PERSIST_DIR)
 
     embeddings = DashScopeEmbeddings(
         model=EMBEDDING_MODEL,
@@ -160,6 +197,7 @@ def ingest(
         persist_directory=str(PERSIST_DIR),
     )
     _ = vector_store
+    release_chroma_clients()
 
     # ==========================
     # 优化统计信息：每章入库文档块数量 + 最大 chunk 长度

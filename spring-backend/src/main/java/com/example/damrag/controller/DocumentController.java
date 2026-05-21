@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
+import com.example.damrag.dto.DocumentDtos.IngestResponse;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -84,9 +85,16 @@ public class DocumentController {
 
             try {
                 file.transferTo(storedPath);
-                document.setProcessStatus("正在向量化");
+                document.setProcessStatus("正在解析");
                 documentRepository.save(document);
-                ragClient.ingest(storedPath, document.getId(), userId, false);
+
+                List<KbDocument> activeDocuments = documentRepository.findAll()
+                        .stream()
+                        .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
+                        .toList();
+
+                ragClient.rebuild(activeDocuments, uploadDir);
+
                 document.setProcessStatus("已完成");
                 document.setErrorMessage(null);
             } catch (Exception e) {
@@ -115,6 +123,13 @@ public class DocumentController {
             }
         }
         documentRepository.delete(document);
+
+        List<KbDocument> activeDocuments = documentRepository.findAll()
+                .stream()
+                .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
+                .toList();
+
+        ragClient.rebuild(activeDocuments, uploadDir);
     }
 
     private String storedName(Long userId, String role, String originalName) {

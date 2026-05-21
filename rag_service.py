@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import ast
+import gc
 import hashlib
 import json
 import os
 import shutil
+import traceback
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -26,6 +28,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel, Field
+from rag_config import STEP1_OUTPUT_DIR
 
 import step2
 import step3
@@ -99,6 +102,15 @@ class IngestResponse(BaseModel):
     document_id: Optional[str] = None
     chunks: int
     status: str
+
+class RebuildDocument(BaseModel):
+    document_id: Optional[str] = None
+    uploaded_by: Optional[str] = None
+    file_path: str
+
+
+class RebuildRequest(BaseModel):
+    documents: list[RebuildDocument]
 
 
 class DashScopeReranker(BaseDocumentCompressor):
@@ -400,10 +412,12 @@ def ingest_document(
         shutil.copyfileobj(file.file, out)
 
     try:
+        global _engine
+        _engine = None
+        gc.collect()
         process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
         step2.build_structured_dataset()
         chunks = step3.ingest(drop_old=not append)
-        global _engine
         _engine = None
         return IngestResponse(
             file_name=file.filename,
@@ -412,4 +426,41 @@ def ingest_document(
             status="completed",
         )
     except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+@app.post("/api/rag/documents/rebuild", response_model=IngestResponse)
+def rebuild_documents(request: RebuildRequest):
+    global _engine
+    try:
+        _engine = None
+        gc.collect()
+
+        if STEP1_OUTPUT_DIR.exists():
+            shutil.rmtree(STEP1_OUTPUT_DIR)
+        STEP1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        for doc in request.documents:
+            pdf_path = Path(doc.file_path)
+            if not pdf_path.exists():
+                raise FileNotFoundError(f"PDF not found: {pdf_path}")
+            process_single_pdf(
+                pdf_path,
+                output_folder=STEP1_OUTPUT_DIR,
+                document_id=doc.document_id,
+                uploaded_by=doc.uploaded_by,
+            )
+
+        step2.build_structured_dataset(input_folder=STEP1_OUTPUT_DIR)
+        chunks = step3.ingest(drop_old=True)
+
+        _engine = None
+        return IngestResponse(
+            file_name="rebuild",
+            document_id=None,
+            chunks=chunks,
+            status="completed",
+        )
+    except Exception as exc:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc)) from exc

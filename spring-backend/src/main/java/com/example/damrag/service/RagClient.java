@@ -2,10 +2,10 @@ package com.example.damrag.service;
 
 import com.example.damrag.dto.ChatDtos.ChatRequest;
 import com.example.damrag.dto.ChatDtos.ChatResponse;
+import com.example.damrag.dto.ChatDtos.ChatTurn;
 import com.example.damrag.dto.ChatDtos.RagChatRequest;
 import com.example.damrag.dto.ChatDtos.RagChatResponse;
 import com.example.damrag.dto.ChatDtos.ReferenceItem;
-import com.example.damrag.dto.ChatDtos.ChatTurn;
 import com.example.damrag.dto.DocumentDtos.IngestResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,16 +14,19 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
+import com.example.damrag.dto.DocumentDtos.RebuildDocument;
+import com.example.damrag.dto.DocumentDtos.RebuildRequest;
+import com.example.damrag.model.KbDocument;
 
 @Service
 public class RagClient implements RagGateway {
@@ -68,7 +71,7 @@ public class RagClient implements RagGateway {
         RagChatResponse ragResponse = postChat(ragRequest);
 
         if (ragResponse == null) {
-            throw new IllegalStateException("RAG 服务没有返回结果");
+            throw new IllegalStateException("RAG service returned an empty response");
         }
 
         List<ReferenceItem> references = (ragResponse.references() == null ? List.<com.example.damrag.dto.ChatDtos.RagReferenceItem>of() : ragResponse.references())
@@ -92,23 +95,95 @@ public class RagClient implements RagGateway {
     }
 
     public IngestResponse ingest(Path filePath, Long documentId, Long uploadedBy, boolean append) {
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new FileSystemResource(filePath));
-        body.add("document_id", String.valueOf(documentId));
-        body.add("uploaded_by", String.valueOf(uploadedBy));
-        body.add("append", String.valueOf(append));
+        try {
+            String boundary = "DamRagBoundary-" + UUID.randomUUID();
+            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/documents/ingest"))
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                    .POST(multipartBody(filePath, documentId, uploadedBy, append, boundary))
+                    .build();
 
-        IngestResponse response = restClient.post()
-                .uri("/api/rag/documents/ingest")
-                .contentType(MediaType.MULTIPART_FORM_DATA)
-                .body(body)
-                .retrieve()
-                .body(IngestResponse.class);
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+            }
 
-        if (response == null) {
-            throw new IllegalStateException("RAG 入库服务没有返回结果");
+            IngestResponse ingestResponse = objectMapper.readValue(response.body(), IngestResponse.class);
+            if (ingestResponse == null) {
+                throw new IllegalStateException("RAG ingest service returned an empty response");
+            }
+            return ingestResponse;
+        } catch (IOException ex) {
+            throw new IllegalStateException("RAG ingest request failed: " + ex.getMessage(), ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RAG ingest request was interrupted", ex);
         }
-        return response;
+    }
+
+    public IngestResponse rebuild(List<KbDocument> documents, Path uploadDir) {
+        List<RebuildDocument> payload = documents.stream()
+                .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
+                .map(doc -> new RebuildDocument(
+                        String.valueOf(doc.getId()),
+                        doc.getUploadedBy() == null ? "" : String.valueOf(doc.getUploadedBy()),
+                        uploadDir.resolve(doc.getStoredName()).toAbsolutePath().normalize().toString()
+                ))
+                .toList();
+
+        String body = toJson(new RebuildRequest(payload));
+
+        HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/documents/rebuild"))
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+            }
+            return objectMapper.readValue(response.body(), IngestResponse.class);
+        } catch (IOException ex) {
+            throw new IllegalStateException("RAG rebuild request failed: " + ex.getMessage(), ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RAG rebuild request was interrupted", ex);
+        }
+    }
+
+    private HttpRequest.BodyPublisher multipartBody(
+            Path filePath,
+            Long documentId,
+            Long uploadedBy,
+            boolean append,
+            String boundary
+    ) throws IOException {
+        List<byte[]> parts = new ArrayList<>();
+        addFormField(parts, boundary, "document_id", documentId == null ? "" : String.valueOf(documentId));
+        addFormField(parts, boundary, "uploaded_by", uploadedBy == null ? "" : String.valueOf(uploadedBy));
+        addFormField(parts, boundary, "append", String.valueOf(append));
+        addFileField(parts, boundary, "file", filePath);
+        parts.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        return HttpRequest.BodyPublishers.ofByteArrays(parts);
+    }
+
+    private void addFormField(List<byte[]> parts, String boundary, String name, String value) {
+        parts.add(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        parts.add(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        parts.add((value + "\r\n").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void addFileField(List<byte[]> parts, String boundary, String name, Path filePath) throws IOException {
+        String filename = filePath.getFileName().toString().replace("\"", "");
+        parts.add(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        parts.add(("Content-Disposition: form-data; name=\"" + name + "\"; filename=\"" + filename + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+        parts.add("Content-Type: application/pdf\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+        parts.add(Files.readAllBytes(filePath));
+        parts.add("\r\n".getBytes(StandardCharsets.UTF_8));
     }
 
     private String absoluteSnapshotUrl(String value) {
@@ -136,7 +211,7 @@ public class RagClient implements RagGateway {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException ex) {
-            throw new IllegalStateException("RAG 请求序列化失败", ex);
+            throw new IllegalStateException("RAG request serialization failed", ex);
         }
     }
 
@@ -155,10 +230,10 @@ public class RagClient implements RagGateway {
             }
             return objectMapper.readValue(response.body(), RagChatResponse.class);
         } catch (IOException ex) {
-            throw new IllegalStateException("RAG 服务请求失败：" + ex.getMessage(), ex);
+            throw new IllegalStateException("RAG service request failed: " + ex.getMessage(), ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("RAG 服务请求被中断", ex);
+            throw new IllegalStateException("RAG service request was interrupted", ex);
         }
     }
 }
