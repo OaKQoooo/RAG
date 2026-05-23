@@ -15,3 +15,5 @@ spring-backend/data/*.trace.db
 spring-backend/data/*.lock.db
 spring-backend/data/*.mv.db
 spring-backend/data/*.mv.db.*
+
+uploads/

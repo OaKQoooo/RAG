@@ -62,6 +62,28 @@ SYSTEM_PROMPT = (
     "参考原文：\n{context}"
 )
 
+SUGGESTION_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "你是一个工程规范问答系统的追问推荐助手。"
+            "请基于用户问题、系统回答和参考条文，生成3个适合继续追问的问题。"
+            "要求："
+            "1. 每个问题必须具体、短句、可直接点击提问；"
+            "2. 不要编造参考条文之外的信息；"
+            "3. 不要输出解释；"
+            "4. 只输出JSON数组，例如：[\"问题1\", \"问题2\", \"问题3\"]。"
+        ),
+        (
+            "human",
+            "用户问题：{question}\n\n"
+            "系统回答：{answer}\n\n"
+            "参考条文：\n{context}\n\n"
+            "请生成3个追问问题。"
+        ),
+    ]
+)
+
 
 class ChatTurn(BaseModel):
     role: str
@@ -265,6 +287,7 @@ class RagEngine:
             dashscope_api_key=DASHSCOPE_API_KEY,
         )
         self.chain = prompt | llm | StrOutputParser()
+        self.suggestion_chain = SUGGESTION_PROMPT | llm | StrOutputParser()
 
     def format_docs(self, docs: list[Document], enable_evidence: bool = False) -> tuple[str, list[ReferenceItem]]:
         parts = []
@@ -301,10 +324,38 @@ class RagEngine:
                 )
         return "\n\n".join(parts), refs
 
+    def suggest_questions(
+        self,
+        question: str,
+        answer: str,
+        context: str,
+        refs: list[ReferenceItem],
+        enabled: bool,
+    ) -> list[str]:
+        if not enabled:
+            return []
+
+        if not refs:
+            return fallback_suggestions(refs)
+
+        try:
+            raw = self.suggestion_chain.invoke(
+                {
+                    "question": question,
+                    "answer": answer,
+                    "context": context[:4000],
+                }
+            )
+            suggestions = parse_suggestion_output(raw)
+            return suggestions or fallback_suggestions(refs)
+        except Exception as exc:
+            print(f"智能追问生成失败，降级为模板推荐: {exc}")
+            return fallback_suggestions(refs)
+
     def ask(self, request: ChatRequest) -> ChatResponse:
         docs = self._filter_documents(self.retriever.invoke(request.question), request)[: request.top_k]
         if not docs:
-            suggestions = build_suggestions([]) if request.enable_suggestions else []
+            suggestions = fallback_suggestions([]) if request.enable_suggestions else []
             return ChatResponse(
                 answer="抱歉，当前规范库中未查阅到关于此问题的相关明确规定。",
                 references=[],
@@ -318,7 +369,13 @@ class RagEngine:
                 "chat_history": _lc_history(request.history),
             }
         )
-        suggestions = build_suggestions(refs) if request.enable_suggestions else []
+        suggestions = self.suggest_questions(
+            question=request.question,
+            answer=answer,
+            context=context,
+            refs=refs,
+            enabled=request.enable_suggestions,
+        )
         return ChatResponse(answer=answer, references=refs, suggestions=suggestions)
 
     def _filter_documents(self, docs: list[Document], request: ChatRequest) -> list[Document]:
@@ -334,7 +391,23 @@ class RagEngine:
         ]
 
 
-def build_suggestions(refs: list[ReferenceItem]) -> list[str]:
+def parse_suggestion_output(text: str) -> list[str]:
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return [str(item).strip() for item in data if str(item).strip()][:3]
+    except Exception:
+        pass
+
+    lines = []
+    for line in text.splitlines():
+        clean = line.strip()
+        clean = clean.lstrip("-0123456789.、)） ").strip()
+        if clean:
+            lines.append(clean)
+    return lines[:3]
+
+def fallback_suggestions(refs: list[ReferenceItem]) -> list[str]:
     if not refs:
         return ["是否需要换一种问法重新检索？"]
     first = refs[0]
