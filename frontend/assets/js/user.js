@@ -49,6 +49,11 @@ let latestReferences = [];
 let latestProfile = null;
 let recentConversations = [];
 
+if (window.DAM_RAG_LOGIN_REQUIRED || !currentUser()) {
+  window.location.href = './index.html';
+  throw new Error('Login required');
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -59,7 +64,7 @@ function escapeHtml(value) {
 }
 
 function activeUser() {
-  return currentUser() || { id: 1, username: '演示用户', phone: '' };
+  return currentUser();
 }
 
 function showSettingsMessage(element, text, type = '') {
@@ -102,6 +107,9 @@ function renderProfile(profile) {
   if (themeToggle) themeToggle.checked = profile.theme === 'dark';
   applyTheme(profile.theme);
   if (currentUserName) currentUserName.textContent = profile.username || profile.phone || '未登录';
+  if (typeof renderAccountIdentity === 'function') {
+    renderAccountIdentity(profile);
+  }
 }
 
 function showDemoCodeMessage(element, targetText) {

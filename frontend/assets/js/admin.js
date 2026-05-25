@@ -3,6 +3,11 @@ const adminTitle = document.getElementById('admin-view-title');
 const adminDocumentsBody = document.getElementById('admin-documents-body');
 const adminUploadList = document.getElementById('admin-upload-list');
 
+if (window.DAM_RAG_LOGIN_REQUIRED || !currentUser()) {
+  window.location.href = './index.html';
+  throw new Error('Login required');
+}
+
 const adminTitles = {
   overview: '平台总览',
   library: '文档库管理',
@@ -164,7 +169,7 @@ if (adminUploadButton) {
   document.body.appendChild(input);
   adminUploadButton.addEventListener('click', () => input.click());
   input.addEventListener('change', async () => {
-    const user = currentUser() || { id: 1 };
+    const user = currentUser();
     const formData = new FormData();
     [...input.files].forEach((file) => formData.append('files', file));
     try {

@@ -13,6 +13,22 @@ function saveSession(data) {
   localStorage.setItem('dam_rag_user', JSON.stringify(data.user));
 }
 
+function clearSession() {
+  localStorage.removeItem('dam_rag_token');
+  localStorage.removeItem('dam_rag_user');
+}
+
+function requireSession() {
+  if (!document.querySelector('.app-shell')) return;
+  const token = localStorage.getItem('dam_rag_token') || '';
+  const user = currentUser();
+  if (!token || !user) {
+    window.DAM_RAG_LOGIN_REQUIRED = true;
+    clearSession();
+    window.location.href = './index.html';
+  }
+}
+
 async function requestJson(path, options = {}) {
   const token = localStorage.getItem('dam_rag_token') || '';
   const response = await fetch(`${API_BASE}${path}`, {
@@ -44,6 +60,109 @@ async function requestJson(path, options = {}) {
   const text = await response.text();
   return text ? text : null;
 }
+
+async function endSession() {
+  try {
+    if (localStorage.getItem('dam_rag_token')) {
+      await requestJson('/auth/logout', { method: 'POST' });
+    }
+  } catch (error) {
+    console.warn('退出登录接口调用失败', error);
+  } finally {
+    clearSession();
+    window.location.href = './index.html';
+  }
+}
+
+function ensureLogoutConfirmModal() {
+  let modal = document.getElementById('logout-confirm-modal');
+  if (modal) return modal;
+
+  modal = document.createElement('div');
+  modal.className = 'modal-backdrop hide';
+  modal.id = 'logout-confirm-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'logout-confirm-title');
+  modal.innerHTML = `
+    <div class="settings-modal logout-confirm-dialog">
+      <div class="modal-header">
+        <h3 id="logout-confirm-title">确认退出登录</h3>
+        <button class="icon-text-btn" type="button" data-action="cancel-logout" aria-label="关闭">×</button>
+      </div>
+      <p class="modal-phone-text">退出后需要重新登录才能继续使用当前账号。</p>
+      <div class="modal-actions">
+        <button class="soft-btn" type="button" data-action="cancel-logout">取消</button>
+        <button class="danger-btn" type="button" data-action="confirm-logout">退出登录</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal || event.target.closest('[data-action="cancel-logout"]')) {
+      modal.classList.add('hide');
+    }
+  });
+
+  modal.querySelector('[data-action="confirm-logout"]')?.addEventListener('click', endSession);
+  return modal;
+}
+
+function showLogoutConfirm() {
+  ensureLogoutConfirmModal().classList.remove('hide');
+}
+
+function switchAccount() {
+  clearSession();
+  window.location.href = './index.html';
+}
+
+function renderAccountIdentity(user = currentUser()) {
+  if (!user) return;
+  const displayName = user.username || user.phone || user.role || '当前账号';
+  document.querySelectorAll('#current-user-name, [data-account-name]').forEach((element) => {
+    element.textContent = displayName;
+  });
+  document.querySelectorAll('[data-account-avatar]').forEach((element) => {
+    element.textContent = displayName.trim().slice(0, 1).toUpperCase() || 'U';
+  });
+}
+
+requireSession();
+renderAccountIdentity();
+
+document.querySelectorAll('.account-menu').forEach((menu) => {
+  const toggle = menu.querySelector('.account-menu-toggle');
+  const panel = menu.querySelector('.account-menu-panel');
+  if (!toggle || !panel) return;
+
+  toggle.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const willOpen = panel.hidden;
+    document.querySelectorAll('.account-menu-panel').forEach((item) => {
+      item.hidden = true;
+      item.closest('.account-menu')?.querySelector('.account-menu-toggle')?.setAttribute('aria-expanded', 'false');
+    });
+    panel.hidden = !willOpen;
+    toggle.setAttribute('aria-expanded', String(willOpen));
+  });
+});
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.account-menu-panel').forEach((panel) => {
+    panel.hidden = true;
+    panel.closest('.account-menu')?.querySelector('.account-menu-toggle')?.setAttribute('aria-expanded', 'false');
+  });
+});
+
+document.querySelectorAll('[data-action="switch-account"]').forEach((button) => {
+  button.addEventListener('click', switchAccount);
+});
+
+document.querySelectorAll('[data-action="logout"]').forEach((button) => {
+  button.addEventListener('click', showLogoutConfirm);
+});
 
 document.querySelectorAll('.app-shell').forEach((shell, shellIndex) => {
   const toggleButton = shell.querySelector('.sidebar-toggle-btn');

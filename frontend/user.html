@@ -41,7 +41,20 @@
         </div>
 
         <div class="sidebar-footnote">
-          <p>当前登录：<span id="current-user-name">未登录</span></p>
+          <div class="account-menu">
+            <button class="account-menu-toggle" type="button" aria-expanded="false">
+              <span class="account-avatar" data-account-avatar>U</span>
+              <span class="account-summary">
+                <span class="account-label">当前账号</span>
+                <span class="account-name" id="current-user-name">未登录</span>
+              </span>
+              <span class="account-caret">⌄</span>
+            </button>
+            <div class="account-menu-panel" hidden>
+              <button type="button" data-action="switch-account">切换账号</button>
+              <button type="button" data-action="logout">退出登录</button>
+            </div>
+          </div>
           <a href="./index.html">返回入口页</a>
         </div>
       </div>
