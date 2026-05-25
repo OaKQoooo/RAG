@@ -381,11 +381,13 @@ select {
 }
 
 .app-shell {
+  height: 100vh;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 290px 1fr;
   gap: 20px;
   padding: 18px;
+  overflow: hidden;
   transition: grid-template-columns 0.24s ease;
 }
 
@@ -670,6 +672,8 @@ select {
 }
 
 .main-panel {
+  height: calc(100vh - 36px);
+  min-height: 0;
   border-radius: 32px;
   background: rgba(255, 255, 255, 0.44);
   padding: 26px;
@@ -678,6 +682,8 @@ select {
   gap: 18px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(12px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .panel-header {
@@ -1224,6 +1230,135 @@ select {
   color: var(--danger);
 }
 
+.data-management-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.data-stat {
+  min-height: 92px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.data-stat strong {
+  color: var(--primary);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.data-stat span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.data-management-list {
+  display: grid;
+  gap: 10px;
+}
+
+.data-management-list > div {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.data-management-list span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.data-management-list strong {
+  color: var(--text);
+  text-align: right;
+}
+
+.conversation-manage-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.conversation-manage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.conversation-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.conversation-select-all input {
+  width: 16px;
+  height: 16px;
+}
+
+.conversation-manage-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.conversation-manage-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.conversation-manage-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.conversation-manage-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.conversation-manage-main strong,
+.conversation-manage-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-manage-main strong {
+  color: var(--text);
+}
+
+.conversation-manage-main small {
+  color: var(--muted);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1371,6 +1506,16 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .app-shell {
+    height: auto;
+    overflow: visible;
+  }
+
+  .sidebar,
+  .main-panel {
+    height: auto;
+  }
+
   .hero-preview,
   .stats-grid,
   .pipeline,
@@ -1437,6 +1582,9 @@ select {
 :root[data-theme="dark"] .activity-row,
 :root[data-theme="dark"] .upload-row,
 :root[data-theme="dark"] .toggle-row,
+:root[data-theme="dark"] .data-stat,
+:root[data-theme="dark"] .data-management-list > div,
+:root[data-theme="dark"] .conversation-manage-row,
 :root[data-theme="dark"] .pipeline-step,
 :root[data-theme="dark"] .settings-modal {
   background: var(--surface);

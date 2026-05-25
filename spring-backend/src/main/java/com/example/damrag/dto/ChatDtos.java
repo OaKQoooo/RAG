@@ -21,6 +21,7 @@ public class ChatDtos {
     public record ChatResponse(Long conversationId, String answer, List<ReferenceItem> references, List<String> suggestions) {}
     public record ConversationView(Long id, Long userId, String title, LocalDateTime createdAt, LocalDateTime updatedAt) {}
     public record CreateConversationRequest(Long userId, String title) {}
+    public record DeleteConversationsRequest(Long userId, List<Long> conversationIds) {}
     public record MessageReferenceView(
             Long id,
             Long messageId,

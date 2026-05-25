@@ -6,6 +6,7 @@ const evidenceStack = document.querySelector('.evidence-stack');
 const suggestionRow = document.getElementById('suggestion-row') || document.querySelector('.suggestion-row');
 const evidenceToggle = document.getElementById('evidence-toggle');
 const exportChatButton = document.getElementById('export-chat-records');
+const exportAllRecordsButton = document.getElementById('export-all-records-btn');
 const chatWorkspace = document.getElementById('chat-workspace');
 const chatSessionPill = document.getElementById('chat-session-pill');
 const conversationList = document.getElementById('conversation-list');
@@ -43,12 +44,20 @@ const modalSendNewCodeButton = document.getElementById('modal-send-new-code-btn'
 const modalPhoneMessage = document.getElementById('modal-phone-message');
 const clearHistoryButton = document.getElementById('clear-history-btn');
 const historyMessage = document.getElementById('history-message');
+const dataConversationCount = document.getElementById('data-conversation-count');
+const dataMessageCount = document.getElementById('data-message-count');
+const dataLastConversation = document.getElementById('data-last-conversation');
+const dataLatestConversationTitle = document.getElementById('data-latest-conversation-title');
+const conversationManageList = document.getElementById('conversation-manage-list');
+const selectAllConversationsCheckbox = document.getElementById('select-all-conversations');
+const deleteSelectedConversationsButton = document.getElementById('delete-selected-conversations-btn');
 const newChatNavButton = document.querySelector('.nav-item[data-view="chat"]');
 let activeConversationId = null;
 let evidenceEnabled = false;
 let latestReferences = [];
 let latestProfile = null;
 let recentConversations = [];
+const selectedConversationIds = new Set();
 
 if (window.DAM_RAG_LOGIN_REQUIRED || !currentUser()) {
   window.location.href = './index.html';
@@ -72,6 +81,10 @@ function showSettingsMessage(element, text, type = '') {
   if (!element) return;
   element.textContent = text;
   element.className = `settings-message${type ? ` ${type}` : ''}`;
+}
+
+function setText(element, value) {
+  if (element) element.textContent = value;
 }
 
 function maskPhone(phone = '') {
@@ -275,13 +288,45 @@ async function clearConversationHistory() {
   showSettingsMessage(historyMessage, '清理中...');
   try {
     const result = await requestJson(`/profile/conversations?userId=${user.id}`, { method: 'DELETE' });
+    selectedConversationIds.clear();
     resetNewChatState();
     await loadConversations();
+    await refreshDataManagementSummary();
     showSettingsMessage(historyMessage, result.message || '会话历史已清空', 'success');
   } catch (error) {
     showSettingsMessage(historyMessage, `清理失败：${error.message}`, 'error');
   } finally {
     if (clearHistoryButton) clearHistoryButton.disabled = false;
+  }
+}
+
+async function deleteSelectedConversations() {
+  const user = activeUser();
+  const conversationIds = [...selectedConversationIds];
+  if (!conversationIds.length) return;
+
+  const confirmed = window.confirm(`确认删除选中的 ${conversationIds.length} 条会话吗？`);
+  if (!confirmed) return;
+
+  if (deleteSelectedConversationsButton) deleteSelectedConversationsButton.disabled = true;
+  showSettingsMessage(historyMessage, '删除中...');
+  try {
+    const result = await requestJson(`/conversations?userId=${user.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ userId: user.id, conversationIds })
+    });
+
+    if (conversationIds.some((id) => String(id) === String(activeConversationId))) {
+      resetNewChatState();
+    }
+    selectedConversationIds.clear();
+    await loadConversations();
+    await refreshDataManagementSummary();
+    showSettingsMessage(historyMessage, result.message || '已删除选中的会话', 'success');
+  } catch (error) {
+    showSettingsMessage(historyMessage, `删除失败：${error.message}`, 'error');
+  } finally {
+    syncConversationSelectionControls();
   }
 }
 
@@ -369,6 +414,18 @@ function formatExportTime(value) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit'
+  });
+}
+
+function formatShortDateTime(value) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
   });
 }
 
@@ -491,6 +548,96 @@ function uniqueValues(values = []) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function renderDataManagementSummary({ conversations = recentConversations, messageCount = null } = {}) {
+  setText(dataConversationCount, conversations.length);
+  setText(dataLastConversation, conversations[0]?.updatedAt ? formatShortDateTime(conversations[0].updatedAt) : '--');
+  setText(dataLatestConversationTitle, conversations[0]?.title || '--');
+  if (messageCount !== null) {
+    setText(dataMessageCount, messageCount);
+  } else if (dataMessageCount && dataMessageCount.textContent === '--') {
+    setText(dataMessageCount, '统计中');
+  }
+}
+
+function syncConversationSelectionControls() {
+  const total = recentConversations.length;
+  const selectedCount = selectedConversationIds.size;
+  if (deleteSelectedConversationsButton) {
+    deleteSelectedConversationsButton.disabled = selectedCount === 0;
+    deleteSelectedConversationsButton.textContent = selectedCount ? `删除选中（${selectedCount}）` : '删除选中';
+  }
+  if (selectAllConversationsCheckbox) {
+    selectAllConversationsCheckbox.checked = total > 0 && selectedCount === total;
+    selectAllConversationsCheckbox.indeterminate = selectedCount > 0 && selectedCount < total;
+  }
+}
+
+function renderConversationManageList(conversations = recentConversations) {
+  if (!conversationManageList) return;
+
+  selectedConversationIds.forEach((id) => {
+    if (!conversations.some((conversation) => String(conversation.id) === String(id))) {
+      selectedConversationIds.delete(id);
+    }
+  });
+
+  if (!conversations.length) {
+    conversationManageList.innerHTML = '<p class="empty-hint">暂无历史会话</p>';
+    syncConversationSelectionControls();
+    return;
+  }
+
+  conversationManageList.innerHTML = '';
+  conversations.forEach((conversation) => {
+    const label = document.createElement('label');
+    label.className = 'conversation-manage-row';
+    label.innerHTML = `
+      <input type="checkbox" value="${escapeHtml(conversation.id)}" ${selectedConversationIds.has(conversation.id) ? 'checked' : ''}>
+      <span class="conversation-manage-main">
+        <strong>${escapeHtml(conversation.title || '新会话')}</strong>
+        <small>更新时间：${escapeHtml(formatShortDateTime(conversation.updatedAt))}</small>
+      </span>
+    `;
+    const checkbox = label.querySelector('input');
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) {
+        selectedConversationIds.add(conversation.id);
+      } else {
+        selectedConversationIds.delete(conversation.id);
+      }
+      syncConversationSelectionControls();
+    });
+    conversationManageList.appendChild(label);
+  });
+
+  syncConversationSelectionControls();
+}
+
+async function refreshDataManagementSummary() {
+  const user = activeUser();
+  if (!user?.id) return;
+
+  try {
+    const conversations = recentConversations.length
+      ? recentConversations
+      : await requestJson(`/conversations?userId=${user.id}`);
+    recentConversations = conversations;
+
+    renderDataManagementSummary({ conversations });
+
+    let messageCount = 0;
+    for (const conversation of conversations) {
+      const messages = await requestJson(`/conversations/${conversation.id}/messages?userId=${user.id}`);
+      messageCount += messages.length;
+    }
+
+    renderDataManagementSummary({ conversations, messageCount });
+  } catch (error) {
+    console.warn('加载数据管理概览失败', error);
+    setText(dataMessageCount, '--');
+  }
+}
+
 function conversationExportSummary(conversation, messages = []) {
   const userMessages = messages.filter((message) => message.role === 'user');
   const assistantMessages = messages.filter((message) => message.role === 'assistant');
@@ -522,6 +669,7 @@ function renderConversations(conversations = []) {
   if (!conversationList) return;
 
   recentConversations = conversations;
+  renderConversationManageList(conversations);
 
   if (!conversations.length) {
     conversationList.innerHTML = '<p class="empty-hint">暂无历史会话</p>';
@@ -559,6 +707,7 @@ async function loadConversations() {
   try {
     const conversations = await requestJson(`/conversations?userId=${user.id}`);
     renderConversations(conversations);
+    renderDataManagementSummary({ conversations });
   } catch (error) {
     console.warn('加载最近对话失败', error);
     if (conversationList) {
@@ -622,7 +771,7 @@ async function loadConversationMessages(conversationId) {
   }
 }
 
-async function exportChatRecords() {
+async function exportChatRecords(exportAll = false) {
   const user = activeUser();
   if (!user?.id) return;
 
@@ -644,7 +793,7 @@ async function exportChatRecords() {
       return;
     }
 
-    const selectedConversation = activeConversationId
+    const selectedConversation = !exportAll && activeConversationId
       ? conversations.find((item) => String(item.id) === String(activeConversationId))
       : null;
     const exportConversations = selectedConversation
@@ -874,6 +1023,7 @@ async function sendMessage() {
     }
     renderSuggestions(data.suggestions || []);
     await loadConversations();
+    await refreshDataManagementSummary();
   } catch (error) {
     appendMessage('assistant', `请求后端失败：${error.message}`);
   } finally {
@@ -891,7 +1041,25 @@ if (sendButton && composerInput) {
 }
 
 if (exportChatButton) {
-  exportChatButton.addEventListener('click', exportChatRecords);
+  exportChatButton.addEventListener('click', () => exportChatRecords(false));
+}
+
+if (exportAllRecordsButton) {
+  exportAllRecordsButton.addEventListener('click', () => exportChatRecords(true));
+}
+
+if (selectAllConversationsCheckbox) {
+  selectAllConversationsCheckbox.addEventListener('change', () => {
+    selectedConversationIds.clear();
+    if (selectAllConversationsCheckbox.checked) {
+      recentConversations.forEach((conversation) => selectedConversationIds.add(conversation.id));
+    }
+    renderConversationManageList(recentConversations);
+  });
+}
+
+if (deleteSelectedConversationsButton) {
+  deleteSelectedConversationsButton.addEventListener('click', deleteSelectedConversations);
 }
 
 if (clearButton && messageStream) {
@@ -1043,3 +1211,4 @@ applyTheme(activeUser().theme || 'light');
 loadProfile();
 loadMyDocuments();
 loadConversations();
+refreshDataManagementSummary();

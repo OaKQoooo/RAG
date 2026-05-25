@@ -220,7 +220,43 @@
               </div>
             </div>
 
+            <div class="data-management-grid">
+              <div class="data-stat">
+                <strong id="data-conversation-count">--</strong>
+                <span>历史会话</span>
+              </div>
+              <div class="data-stat">
+                <strong id="data-message-count">--</strong>
+                <span>问答消息</span>
+              </div>
+              <div class="data-stat">
+                <strong id="data-last-conversation">--</strong>
+                <span>最近更新</span>
+              </div>
+            </div>
+
+            <div class="data-management-list">
+              <div>
+                <span>最近会话</span>
+                <strong id="data-latest-conversation-title">--</strong>
+              </div>
+            </div>
+
+            <div class="conversation-manage-panel">
+              <div class="conversation-manage-toolbar">
+                <label class="conversation-select-all">
+                  <input type="checkbox" id="select-all-conversations">
+                  <span>全选会话</span>
+                </label>
+                <button class="danger-btn action-btn" id="delete-selected-conversations-btn" type="button" disabled>删除选中</button>
+              </div>
+              <div class="conversation-manage-list" id="conversation-manage-list">
+                <p class="empty-hint">暂无历史会话</p>
+              </div>
+            </div>
+
             <div class="inline-actions">
+              <button class="soft-btn" id="export-all-records-btn" type="button">导出问答记录</button>
               <button class="danger-btn" id="clear-history-btn">清空会话历史</button>
             </div>
             <p class="settings-message" id="history-message"></p>

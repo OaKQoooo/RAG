@@ -4,7 +4,9 @@ import com.example.damrag.dto.ChatDtos.ChatRequest;
 import com.example.damrag.dto.ChatDtos.ChatResponse;
 import com.example.damrag.dto.ChatDtos.ConversationView;
 import com.example.damrag.dto.ChatDtos.CreateConversationRequest;
+import com.example.damrag.dto.ChatDtos.DeleteConversationsRequest;
 import com.example.damrag.dto.ChatDtos.MessageView;
+import com.example.damrag.dto.ProfileDtos.Result;
 import com.example.damrag.model.User;
 import com.example.damrag.service.AuthService;
 import com.example.damrag.service.ChatService;
@@ -51,6 +53,17 @@ public class ConversationController {
         Long resolvedUserId = currentUserId(token, request != null && request.userId() != null ? request.userId() : userId);
         String resolvedTitle = request != null && request.title() != null ? request.title() : title;
         return conversationService.createConversation(resolvedUserId, resolvedTitle);
+    }
+
+    @DeleteMapping("/conversations")
+    public Result deleteConversations(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestParam(required = false) Long userId,
+            @RequestBody(required = false) DeleteConversationsRequest request
+    ) {
+        Long resolvedUserId = currentUserId(token, request != null && request.userId() != null ? request.userId() : userId);
+        List<Long> conversationIds = request == null || request.conversationIds() == null ? List.of() : request.conversationIds();
+        return conversationService.deleteConversations(resolvedUserId, conversationIds);
     }
 
     @GetMapping("/conversations/{id}/messages")

@@ -1,8 +1,13 @@
 package com.example.damrag.service;
 
 import com.example.damrag.dto.ChatDtos.ConversationView;
+import com.example.damrag.dto.ProfileDtos.Result;
 import com.example.damrag.model.QaConversation;
+import com.example.damrag.model.QaMessage;
+import com.example.damrag.repository.MessageReferenceRepository;
 import com.example.damrag.repository.QaConversationRepository;
+import com.example.damrag.repository.QaMessageRepository;
+import jakarta.transaction.Transactional;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,9 +16,17 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class ConversationService {
     private final QaConversationRepository conversationRepository;
+    private final QaMessageRepository messageRepository;
+    private final MessageReferenceRepository referenceRepository;
 
-    public ConversationService(QaConversationRepository conversationRepository) {
+    public ConversationService(
+            QaConversationRepository conversationRepository,
+            QaMessageRepository messageRepository,
+            MessageReferenceRepository referenceRepository
+    ) {
         this.conversationRepository = conversationRepository;
+        this.messageRepository = messageRepository;
+        this.referenceRepository = referenceRepository;
     }
 
     public List<ConversationView> listConversations(Long userId) {
@@ -48,6 +61,38 @@ public class ConversationService {
         QaConversation conversation = conversationRepository.findById(conversationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
         ensureOwner(conversation, userId);
+    }
+
+    @Transactional
+    public Result deleteConversations(Long userId, List<Long> conversationIds) {
+        if (conversationIds == null || conversationIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要删除的会话");
+        }
+
+        List<Long> distinctIds = conversationIds.stream()
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        if (distinctIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要删除的会话");
+        }
+
+        List<QaConversation> conversations = conversationRepository.findAllById(distinctIds);
+        if (conversations.size() != distinctIds.size()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "部分会话不存在");
+        }
+        conversations.forEach(conversation -> ensureOwner(conversation, userId));
+
+        List<Long> messageIds = messageRepository.findByConversationIdIn(distinctIds)
+                .stream()
+                .map(QaMessage::getId)
+                .toList();
+        if (!messageIds.isEmpty()) {
+            referenceRepository.deleteByMessageIdIn(messageIds);
+        }
+        messageRepository.deleteByConversationIdIn(distinctIds);
+        conversationRepository.deleteAll(conversations);
+        return new Result(true, "已删除选中的会话");
     }
 
     public QaConversation updateTitle(QaConversation conversation, String question) {
