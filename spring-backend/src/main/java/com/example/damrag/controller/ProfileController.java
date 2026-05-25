@@ -1,6 +1,7 @@
 package com.example.damrag.controller;
 
 import com.example.damrag.dto.ProfileDtos.ChangePhoneRequest;
+import com.example.damrag.dto.ProfileDtos.ChangePasswordRequest;
 import com.example.damrag.dto.ProfileDtos.ProfileUpdateRequest;
 import com.example.damrag.dto.ProfileDtos.Result;
 import com.example.damrag.dto.ProfileDtos.UserProfile;
@@ -29,6 +30,11 @@ public class ProfileController {
     @PostMapping("/phone")
     public UserProfile changePhone(@RequestParam Long userId, @RequestBody ChangePhoneRequest request) {
         return profileService.changePhone(userId, request);
+    }
+
+    @PostMapping("/password")
+    public Result changePassword(@RequestParam Long userId, @RequestBody ChangePasswordRequest request) {
+        return profileService.changePassword(userId, request);
     }
 
     @DeleteMapping("/conversations")

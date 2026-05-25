@@ -1,6 +1,7 @@
 package com.example.damrag.service;
 
 import com.example.damrag.dto.ProfileDtos.ChangePhoneRequest;
+import com.example.damrag.dto.ProfileDtos.ChangePasswordRequest;
 import com.example.damrag.dto.ProfileDtos.ProfileUpdateRequest;
 import com.example.damrag.dto.ProfileDtos.Result;
 import com.example.damrag.dto.ProfileDtos.UserProfile;
@@ -14,6 +15,7 @@ import com.example.damrag.repository.UserRepository;
 import jakarta.transaction.Transactional;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -26,17 +28,20 @@ public class ProfileService {
     private final QaConversationRepository conversationRepository;
     private final QaMessageRepository messageRepository;
     private final MessageReferenceRepository referenceRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public ProfileService(
             UserRepository userRepository,
             QaConversationRepository conversationRepository,
             QaMessageRepository messageRepository,
-            MessageReferenceRepository referenceRepository
+            MessageReferenceRepository referenceRepository,
+            PasswordEncoder passwordEncoder
     ) {
         this.userRepository = userRepository;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.referenceRepository = referenceRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public UserProfile getProfile(Long userId) {
@@ -78,6 +83,40 @@ public class ProfileService {
         }
         user.setPhone(newPhone);
         return toProfile(userRepository.save(user));
+    }
+
+    public Result changePassword(Long userId, ChangePasswordRequest request) {
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "密码参数不能为空");
+        }
+
+        User user = findUser(userId);
+        String oldPassword = request.oldPassword() == null ? "" : request.oldPassword();
+        String newPassword = request.newPassword() == null ? "" : request.newPassword();
+        String confirmPassword = request.confirmPassword() == null ? "" : request.confirmPassword();
+
+        if (oldPassword.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "原密码不能为空");
+        }
+        if (!passwordEncoder.matches(oldPassword, user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "原密码错误");
+        }
+        if (newPassword.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新密码不能为空");
+        }
+        if (newPassword.length() < 6) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新密码至少6位");
+        }
+        if (!newPassword.equals(confirmPassword)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "两次新密码输入不一致");
+        }
+        if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新密码不能与原密码相同");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return new Result(true, "密码已修改，请使用新密码登录");
     }
 
     @Transactional

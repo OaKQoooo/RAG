@@ -24,6 +24,15 @@ const modalCancelPhoneButton = document.getElementById('modal-cancel-phone-btn')
 const modalNextPhoneButton = document.getElementById('modal-next-phone-btn');
 const modalBackPhoneButton = document.getElementById('modal-back-phone-btn');
 const modalFinishPhoneButton = document.getElementById('modal-finish-phone-btn');
+const openPasswordModalButton = document.getElementById('open-password-modal-btn');
+const passwordModal = document.getElementById('password-modal');
+const closePasswordModalButton = document.getElementById('close-password-modal-btn');
+const modalCancelPasswordButton = document.getElementById('modal-cancel-password-btn');
+const modalFinishPasswordButton = document.getElementById('modal-finish-password-btn');
+const modalOldPasswordInput = document.getElementById('modal-old-password');
+const modalNewPasswordInput = document.getElementById('modal-new-password');
+const modalConfirmPasswordInput = document.getElementById('modal-confirm-password');
+const modalPasswordMessage = document.getElementById('modal-password-message');
 const modalCurrentPhone = document.getElementById('modal-current-phone');
 const modalOldPhoneCodeInput = document.getElementById('modal-old-phone-code');
 const modalNewPhoneInput = document.getElementById('modal-new-phone');
@@ -127,6 +136,20 @@ function closePhoneModal() {
   phoneModal?.classList.add('hide');
 }
 
+function openPasswordModal() {
+  if (!passwordModal) return;
+  if (modalOldPasswordInput) modalOldPasswordInput.value = '';
+  if (modalNewPasswordInput) modalNewPasswordInput.value = '';
+  if (modalConfirmPasswordInput) modalConfirmPasswordInput.value = '';
+  showSettingsMessage(modalPasswordMessage, '');
+  passwordModal.classList.remove('hide');
+  modalOldPasswordInput?.focus();
+}
+
+function closePasswordModal() {
+  passwordModal?.classList.add('hide');
+}
+
 async function loadProfile() {
   const user = activeUser();
   try {
@@ -194,6 +217,45 @@ async function changePhone() {
     showSettingsMessage(modalPhoneMessage, `换绑失败：${error.message}`, 'error');
   } finally {
     if (modalFinishPhoneButton) modalFinishPhoneButton.disabled = false;
+  }
+}
+
+async function changePassword() {
+  const user = activeUser();
+  const oldPassword = modalOldPasswordInput?.value || '';
+  const newPassword = modalNewPasswordInput?.value || '';
+  const confirmPassword = modalConfirmPasswordInput?.value || '';
+
+  if (!oldPassword.trim()) {
+    showSettingsMessage(modalPasswordMessage, '请输入原密码', 'error');
+    return;
+  }
+  if (newPassword.length < 6) {
+    showSettingsMessage(modalPasswordMessage, '新密码至少6位', 'error');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showSettingsMessage(modalPasswordMessage, '两次新密码输入不一致', 'error');
+    return;
+  }
+  if (oldPassword === newPassword) {
+    showSettingsMessage(modalPasswordMessage, '新密码不能与原密码相同', 'error');
+    return;
+  }
+
+  if (modalFinishPasswordButton) modalFinishPasswordButton.disabled = true;
+  showSettingsMessage(modalPasswordMessage, '保存中...');
+  try {
+    const result = await requestJson(`/profile/password?userId=${user.id}`, {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword, confirmPassword })
+    });
+    closePasswordModal();
+    showSettingsMessage(profileMessage, result.message || '密码已修改', 'success');
+  } catch (error) {
+    showSettingsMessage(modalPasswordMessage, `修改失败：${error.message}`, 'error');
+  } finally {
+    if (modalFinishPasswordButton) modalFinishPasswordButton.disabled = false;
   }
 }
 
@@ -588,12 +650,24 @@ if (openPhoneModalButton) {
   openPhoneModalButton.addEventListener('click', openPhoneModal);
 }
 
+if (openPasswordModalButton) {
+  openPasswordModalButton.addEventListener('click', openPasswordModal);
+}
+
 if (closePhoneModalButton) {
   closePhoneModalButton.addEventListener('click', closePhoneModal);
 }
 
+if (closePasswordModalButton) {
+  closePasswordModalButton.addEventListener('click', closePasswordModal);
+}
+
 if (modalCancelPhoneButton) {
   modalCancelPhoneButton.addEventListener('click', closePhoneModal);
+}
+
+if (modalCancelPasswordButton) {
+  modalCancelPasswordButton.addEventListener('click', closePasswordModal);
 }
 
 if (modalNextPhoneButton) {
@@ -617,6 +691,18 @@ if (modalBackPhoneButton) {
 
 if (modalFinishPhoneButton) {
   modalFinishPhoneButton.addEventListener('click', changePhone);
+}
+
+if (modalFinishPasswordButton) {
+  modalFinishPasswordButton.addEventListener('click', changePassword);
+}
+
+if (passwordModal) {
+  passwordModal.addEventListener('click', (event) => {
+    if (event.target === passwordModal) {
+      closePasswordModal();
+    }
+  });
 }
 
 if (modalSendOldCodeButton) {

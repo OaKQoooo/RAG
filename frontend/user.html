@@ -165,6 +165,13 @@
                   <button class="soft-btn compact-action-btn" id="open-phone-modal-btn" type="button">修改</button>
                 </div>
               </div>
+              <div class="account-field">
+                <span>登录密码</span>
+                <div class="phone-display-row">
+                  <span class="masked-phone">********</span>
+                  <button class="soft-btn compact-action-btn" id="open-password-modal-btn" type="button">修改</button>
+                </div>
+              </div>
             </div>
 
             <div class="inline-actions">
@@ -249,6 +256,33 @@
           <button class="soft-btn" id="modal-back-phone-btn" type="button">上一步</button>
           <button class="primary-btn" id="modal-finish-phone-btn" type="button">完成</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hide" id="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+    <div class="settings-modal">
+      <div class="modal-header">
+        <h3 id="password-modal-title">修改登录密码</h3>
+        <button class="icon-text-btn" id="close-password-modal-btn" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <label class="modal-field">
+        <span>原密码</span>
+        <input type="password" id="modal-old-password" autocomplete="current-password">
+      </label>
+      <label class="modal-field">
+        <span>新密码</span>
+        <input type="password" id="modal-new-password" autocomplete="new-password" minlength="6">
+      </label>
+      <label class="modal-field">
+        <span>确认新密码</span>
+        <input type="password" id="modal-confirm-password" autocomplete="new-password" minlength="6">
+      </label>
+      <p class="settings-message" id="modal-password-message"></p>
+      <div class="modal-actions">
+        <button class="soft-btn" id="modal-cancel-password-btn" type="button">取消</button>
+        <button class="primary-btn" id="modal-finish-password-btn" type="button">保存</button>
       </div>
     </div>
   </div>

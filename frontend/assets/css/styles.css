@@ -1159,6 +1159,25 @@ select {
   gap: 10px;
 }
 
+.modal-field span,
+.code-input-row span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.modal-field input,
+.code-input-action input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  font: inherit;
+}
+
 .phone-modal-step.hide,
 .phone-modal-step[hidden] {
   display: none;
@@ -1309,6 +1328,8 @@ select {
 :root[data-theme="dark"] .table-search,
 :root[data-theme="dark"] .composer textarea,
 :root[data-theme="dark"] .account-field input,
+:root[data-theme="dark"] .modal-field input,
+:root[data-theme="dark"] .code-input-action input,
 :root[data-theme="dark"] .phone-display-row {
   background: rgba(12, 20, 26, 0.86);
   color: var(--text);
