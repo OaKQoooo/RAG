@@ -18,6 +18,21 @@
   --body-font: "Microsoft YaHei", "PingFang SC", sans-serif;
 }
 
+:root[data-theme="dark"] {
+  --bg: #101820;
+  --bg-deep: #071015;
+  --surface: rgba(22, 34, 42, 0.86);
+  --surface-strong: #17232c;
+  --text: #e8f1f2;
+  --muted: #9fb3b8;
+  --line: rgba(232, 241, 242, 0.12);
+  --primary: #6fc3cf;
+  --primary-soft: rgba(111, 195, 207, 0.16);
+  --secondary: #a8c982;
+  --danger: #f08a8a;
+  --shadow: 0 22px 54px rgba(0, 0, 0, 0.34);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1243,4 +1258,62 @@ select {
     width: 100%;
     min-width: 0;
   }
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at top right, rgba(111, 195, 207, 0.12), transparent 22%),
+    radial-gradient(circle at bottom left, rgba(168, 201, 130, 0.1), transparent 24%),
+    linear-gradient(145deg, #101820 0%, var(--bg) 48%, var(--bg-deep) 100%);
+}
+
+:root[data-theme="dark"] .main-panel,
+:root[data-theme="dark"] .glass-panel,
+:root[data-theme="dark"] .metric-card,
+:root[data-theme="dark"] .ai-message,
+:root[data-theme="dark"] .evidence-card,
+:root[data-theme="dark"] .activity-row,
+:root[data-theme="dark"] .upload-row,
+:root[data-theme="dark"] .toggle-row,
+:root[data-theme="dark"] .pipeline-step,
+:root[data-theme="dark"] .settings-modal {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .auth-form input,
+:root[data-theme="dark"] .auth-form select,
+:root[data-theme="dark"] .form-grid input,
+:root[data-theme="dark"] .table-search,
+:root[data-theme="dark"] .composer textarea,
+:root[data-theme="dark"] .account-field input,
+:root[data-theme="dark"] .phone-display-row {
+  background: rgba(12, 20, 26, 0.86);
+  color: var(--text);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .soft-btn,
+:root[data-theme="dark"] .ghost-btn {
+  background: rgba(22, 34, 42, 0.9);
+  color: var(--primary);
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .page-preview {
+  background: linear-gradient(180deg, #16232c, #101820);
+}
+
+:root[data-theme="dark"] .page-line {
+  background: rgba(232, 241, 242, 0.18);
+}
+
+:root[data-theme="dark"] .chat-empty-state strong,
+:root[data-theme="dark"] .panel-toolbar h3,
+:root[data-theme="dark"] .evidence-info h4 {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .sidebar {
+  background: linear-gradient(180deg, rgba(8, 18, 24, 0.96), rgba(12, 32, 38, 0.94));
 }

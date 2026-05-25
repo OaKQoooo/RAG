@@ -77,12 +77,18 @@ function refreshStoredUser(profile) {
   localStorage.setItem('dam_rag_user', JSON.stringify(nextUser));
 }
 
+function applyTheme(theme) {
+  const normalized = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = normalized;
+}
+
 function renderProfile(profile) {
   if (!profile) return;
   latestProfile = profile;
   if (profileUsernameInput) profileUsernameInput.value = profile.username || '';
   if (profilePhoneDisplay) profilePhoneDisplay.textContent = maskPhone(profile.phone);
   if (themeToggle) themeToggle.checked = profile.theme === 'dark';
+  applyTheme(profile.theme);
   if (currentUserName) currentUserName.textContent = profile.username || profile.phone || '未登录';
 }
 
@@ -134,6 +140,8 @@ async function saveProfile() {
   const user = activeUser();
   const username = profileUsernameInput?.value.trim() || '';
   const theme = themeToggle?.checked ? 'dark' : 'light';
+  applyTheme(theme);
+
   if (saveProfileButton) saveProfileButton.disabled = true;
   showSettingsMessage(profileMessage, '保存中...');
   try {
@@ -503,6 +511,12 @@ if (clearHistoryButton) {
   clearHistoryButton.addEventListener('click', clearConversationHistory);
 }
 
+if (themeToggle) {
+  themeToggle.addEventListener('change', () => {
+    applyTheme(themeToggle.checked ? 'dark' : 'light');
+  });
+}
+
 syncEvidenceLayout();
 resetNewChatState();
 
@@ -540,5 +554,6 @@ if (uploadButton) {
   });
 }
 
+applyTheme(activeUser().theme || 'light');
 loadProfile();
 loadMyDocuments();
