@@ -5,6 +5,7 @@ const messageStream = document.getElementById('message-stream');
 const evidenceStack = document.querySelector('.evidence-stack');
 const suggestionRow = document.getElementById('suggestion-row') || document.querySelector('.suggestion-row');
 const evidenceToggle = document.getElementById('evidence-toggle');
+const exportChatButton = document.getElementById('export-chat-records');
 const chatWorkspace = document.getElementById('chat-workspace');
 const chatSessionPill = document.getElementById('chat-session-pill');
 const conversationList = document.getElementById('conversation-list');
@@ -357,6 +358,166 @@ function formatConversationTime(value) {
   });
 }
 
+function formatExportTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function safeFilePart(value) {
+  return String(value || 'chat-records')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 48) || 'chat-records';
+}
+
+function downloadTextFile(fileName, content, mimeType) {
+  const blob = new Blob([`\uFEFF${content}`], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function wordText(value) {
+  return escapeHtml(value).replace(/\r?\n/g, '<br>');
+}
+
+function wordTable(rows = []) {
+  if (!rows.length) return '';
+  const [headers, ...bodyRows] = rows;
+  return `
+    <table>
+      <thead>
+        <tr>${headers.map((cell) => `<th>${wordText(cell)}</th>`).join('')}</tr>
+      </thead>
+      <tbody>
+        ${bodyRows.map((row) => `
+          <tr>${row.map((cell) => `<td>${wordText(cell)}</td>`).join('')}</tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function buildWordDocument(title, summaryRows, detailRows) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${wordText(title)}</title>
+  <style>
+    body {
+      font-family: "Microsoft YaHei", Arial, sans-serif;
+      color: #18363f;
+      line-height: 1.65;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+    h2 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      color: #1f5d6b;
+    }
+    .meta {
+      margin: 0 0 18px;
+      color: #65727a;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 18px;
+      table-layout: fixed;
+    }
+    th,
+    td {
+      border: 1px solid #cfd9dd;
+      padding: 8px 10px;
+      vertical-align: top;
+      word-break: break-word;
+      font-size: 12px;
+    }
+    th {
+      background: #e8f1f2;
+      color: #18363f;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <h1>${wordText(title)}</h1>
+  <p class="meta">导出时间：${wordText(formatExportTime(new Date()))}</p>
+  <h2>会话总结</h2>
+  ${wordTable(summaryRows)}
+  <h2>对话明细</h2>
+  ${wordTable(detailRows)}
+</body>
+</html>`;
+}
+
+function referencesSummary(references = []) {
+  return references
+    .map((ref) => [ref.sourceFile || ref.standardName || '', ref.clauseId || '', ref.page ? `P${ref.page}` : '']
+      .filter(Boolean)
+      .join(' '))
+    .filter(Boolean)
+    .join('；');
+}
+
+function compactText(value, maxLength = 90) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength)}...`;
+}
+
+function uniqueValues(values = []) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function conversationExportSummary(conversation, messages = []) {
+  const userMessages = messages.filter((message) => message.role === 'user');
+  const assistantMessages = messages.filter((message) => message.role === 'assistant');
+  const questions = userMessages.map((message) => compactText(message.content, 48)).filter(Boolean);
+  const references = messages.flatMap((message) => message.references || []);
+  const clauses = uniqueValues(references.map((ref) => ref.clauseId).filter(Boolean)).slice(0, 6);
+  const sources = uniqueValues(references.map((ref) => ref.sourceFile || ref.standardName).filter(Boolean)).slice(0, 3);
+  const topic = conversation.title || questions[0] || '未命名会话';
+
+  const parts = [
+    `本次会话主题为“${topic}”`,
+    `共包含 ${userMessages.length} 个用户问题和 ${assistantMessages.length} 条助手回复`
+  ];
+
+  if (questions.length) {
+    parts.push(`主要问题包括：${questions.slice(0, 3).join('；')}`);
+  }
+  if (clauses.length) {
+    parts.push(`回答中引用的重点条款包括：${clauses.join('、')}`);
+  }
+  if (sources.length) {
+    parts.push(`涉及资料来源：${sources.join('、')}`);
+  }
+
+  return `${parts.join('。')}。`;
+}
+
 function renderConversations(conversations = []) {
   if (!conversationList) return;
 
@@ -458,6 +619,111 @@ async function loadConversationMessages(conversationId) {
     renderConversations(recentConversations);
   } catch (error) {
     appendMessage('assistant', `加载会话失败：${error.message}`);
+  }
+}
+
+async function exportChatRecords() {
+  const user = activeUser();
+  if (!user?.id) return;
+
+  const oldText = exportChatButton?.textContent || '';
+  if (exportChatButton) {
+    exportChatButton.disabled = true;
+    exportChatButton.textContent = '导出中...';
+  }
+
+  try {
+    let conversations = recentConversations;
+    if (!conversations.length) {
+      conversations = await requestJson(`/conversations?userId=${user.id}`);
+      renderConversations(conversations);
+    }
+
+    if (!conversations.length) {
+      alert('暂无可导出的会话记录');
+      return;
+    }
+
+    const selectedConversation = activeConversationId
+      ? conversations.find((item) => String(item.id) === String(activeConversationId))
+      : null;
+    const exportConversations = selectedConversation
+      ? [selectedConversation]
+      : conversations;
+
+    const summaryRows = [[
+      '导出部分',
+      '会话ID',
+      '会话标题',
+      '创建时间',
+      '更新时间',
+      '用户问题数',
+      '助手回复数',
+      '对话总结'
+    ]];
+
+    const detailRows = [[
+      '导出部分',
+      '会话ID',
+      '会话标题',
+      '消息序号',
+      '角色',
+      '发送时间',
+      '内容',
+      '引用信息'
+    ]];
+
+    for (const conversation of exportConversations) {
+      const messages = await requestJson(`/conversations/${conversation.id}/messages?userId=${user.id}`);
+      const userMessageCount = messages.filter((message) => message.role === 'user').length;
+      const assistantMessageCount = messages.filter((message) => message.role === 'assistant').length;
+
+      summaryRows.push([
+        '会话摘要',
+        conversation.id,
+        conversation.title || '新会话',
+        formatExportTime(conversation.createdAt),
+        formatExportTime(conversation.updatedAt),
+        userMessageCount,
+        assistantMessageCount,
+        conversationExportSummary(conversation, messages)
+      ]);
+
+      messages.forEach((message) => {
+        detailRows.push([
+          '消息明细',
+          conversation.id,
+          conversation.title || '新会话',
+          message.seqNo || '',
+          message.role === 'user' ? '用户' : '助手',
+          formatExportTime(message.createdAt),
+          message.content || '',
+          referencesSummary(message.references || [])
+        ]);
+      });
+    }
+
+    if (detailRows.length === 1) {
+      alert('当前会话暂无可导出的消息');
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const fileScope = selectedConversation
+      ? safeFilePart(selectedConversation.title || `conversation-${selectedConversation.id}`)
+      : 'all-conversations';
+    const documentTitle = selectedConversation
+      ? `大坝智能问答记录 - ${selectedConversation.title || `会话${selectedConversation.id}`}`
+      : '大坝智能问答记录 - 全部会话';
+    const wordDocument = buildWordDocument(documentTitle, summaryRows, detailRows);
+    downloadTextFile(`dam-rag-${fileScope}-${today}.doc`, wordDocument, 'application/msword;charset=utf-8');
+  } catch (error) {
+    alert(`导出失败：${error.message}`);
+  } finally {
+    if (exportChatButton) {
+      exportChatButton.disabled = false;
+      exportChatButton.textContent = oldText || '导出记录';
+    }
   }
 }
 
@@ -622,6 +888,10 @@ if (sendButton && composerInput) {
       sendMessage();
     }
   });
+}
+
+if (exportChatButton) {
+  exportChatButton.addEventListener('click', exportChatRecords);
 }
 
 if (clearButton && messageStream) {
