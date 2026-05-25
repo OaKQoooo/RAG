@@ -519,6 +519,28 @@ select {
   background: rgba(255, 255, 255, 0.16);
 }
 
+.conversation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-chip {
+  width: 100%;
+}
+
+.history-title {
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.history-time {
+  display: block;
+  margin-top: 4px;
+  color: rgba(236, 244, 241, 0.58);
+  font-size: 12px;
+}
+
 .sidebar-footnote {
   margin-top: auto;
   display: grid;

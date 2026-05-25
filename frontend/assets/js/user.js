@@ -7,6 +7,7 @@ const suggestionRow = document.getElementById('suggestion-row') || document.quer
 const evidenceToggle = document.getElementById('evidence-toggle');
 const chatWorkspace = document.getElementById('chat-workspace');
 const chatSessionPill = document.getElementById('chat-session-pill');
+const conversationList = document.getElementById('conversation-list');
 const userUploadList = document.getElementById('user-upload-list');
 const userDocumentsBody = document.getElementById('user-documents-body');
 const currentUserName = document.getElementById('current-user-name');
@@ -32,10 +33,12 @@ const modalSendNewCodeButton = document.getElementById('modal-send-new-code-btn'
 const modalPhoneMessage = document.getElementById('modal-phone-message');
 const clearHistoryButton = document.getElementById('clear-history-btn');
 const historyMessage = document.getElementById('history-message');
+const newChatNavButton = document.querySelector('.nav-item[data-view="chat"]');
 let activeConversationId = null;
 let evidenceEnabled = false;
 let latestReferences = [];
 let latestProfile = null;
+let recentConversations = [];
 
 function escapeHtml(value) {
   return String(value || '')
@@ -202,6 +205,7 @@ async function clearConversationHistory() {
   try {
     const result = await requestJson(`/profile/conversations?userId=${user.id}`, { method: 'DELETE' });
     resetNewChatState();
+    await loadConversations();
     showSettingsMessage(historyMessage, result.message || '会话历史已清空', 'success');
   } catch (error) {
     showSettingsMessage(historyMessage, `清理失败：${error.message}`, 'error');
@@ -271,6 +275,122 @@ function renderSuggestions(suggestions = []) {
   });
 }
 
+function formatConversationTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function renderConversations(conversations = []) {
+  if (!conversationList) return;
+
+  recentConversations = conversations;
+
+  if (!conversations.length) {
+    conversationList.innerHTML = '<p class="empty-hint">暂无历史会话</p>';
+    return;
+  }
+
+  conversationList.innerHTML = '';
+
+  conversations.forEach((conversation) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'history-chip';
+    button.dataset.conversationId = conversation.id;
+
+    if (String(conversation.id) === String(activeConversationId)) {
+      button.classList.add('active');
+    }
+
+    button.innerHTML = `
+      <span class="history-title">${escapeHtml(conversation.title || '新会话')}</span>
+      <small class="history-time">${escapeHtml(formatConversationTime(conversation.updatedAt))}</small>
+    `;
+
+    button.addEventListener('click', () => {
+      loadConversationMessages(conversation.id);
+    });
+
+    conversationList.appendChild(button);
+  });
+}
+
+async function loadConversations() {
+  const user = activeUser();
+
+  try {
+    const conversations = await requestJson(`/conversations?userId=${user.id}`);
+    renderConversations(conversations);
+  } catch (error) {
+    console.warn('加载最近对话失败', error);
+    if (conversationList) {
+      conversationList.innerHTML = '<p class="empty-hint">最近对话加载失败</p>';
+    }
+  }
+}
+
+async function loadConversationMessages(conversationId) {
+  const user = activeUser();
+
+  try {
+    activeConversationId = conversationId;
+    latestReferences = [];
+    renderSuggestions([]);
+
+    if (chatSessionPill) {
+      chatSessionPill.textContent = `会话编号：${conversationId}`;
+    }
+
+    if (messageStream) {
+      messageStream.innerHTML = '';
+    }
+
+    const messages = await requestJson(`/conversations/${conversationId}/messages?userId=${user.id}`);
+
+    if (!messages.length && messageStream) {
+      messageStream.innerHTML = `
+        <div class="chat-empty-state" id="chat-empty-state">
+          <strong>这个会话暂无消息</strong>
+          <p>你可以继续输入新的工程问题。</p>
+        </div>
+      `;
+    }
+
+    messages.forEach((message) => {
+      const references = message.references || [];
+      const clauses = references
+        .map((ref) => ref.clauseId)
+        .filter(Boolean)
+        .join(' / ');
+
+      appendMessage(
+        message.role === 'user' ? 'user' : 'assistant',
+        message.content || '',
+        clauses ? `引用条款：${clauses}` : ''
+      );
+
+      if (message.role === 'assistant' && references.length) {
+        latestReferences = references;
+      }
+    });
+
+    if (evidenceEnabled) {
+      renderEvidence(latestReferences);
+    }
+
+    renderConversations(recentConversations);
+  } catch (error) {
+    appendMessage('assistant', `加载会话失败：${error.message}`);
+  }
+}
+
 function resetNewChatState() {
   activeConversationId = null;
   latestReferences = [];
@@ -287,6 +407,7 @@ function resetNewChatState() {
   }
   renderSuggestions([]);
   renderEvidence([]);
+  renderConversations(recentConversations);
 }
 
 function statusBadgeClass(status = '') {
@@ -416,6 +537,7 @@ async function sendMessage() {
       renderEvidence(latestReferences);
     }
     renderSuggestions(data.suggestions || []);
+    await loadConversations();
   } catch (error) {
     appendMessage('assistant', `请求后端失败：${error.message}`);
   } finally {
@@ -434,6 +556,12 @@ if (sendButton && composerInput) {
 
 if (clearButton && messageStream) {
   clearButton.addEventListener('click', () => {
+    resetNewChatState();
+  });
+}
+
+if (newChatNavButton) {
+  newChatNavButton.addEventListener('click', () => {
     resetNewChatState();
   });
 }
@@ -520,13 +648,6 @@ if (themeToggle) {
 syncEvidenceLayout();
 resetNewChatState();
 
-document.querySelectorAll('.history-chip').forEach((chip) => {
-  chip.addEventListener('click', () => {
-    document.querySelectorAll('.history-chip').forEach((item) => item.classList.remove('active'));
-    chip.classList.add('active');
-  });
-});
-
 const uploadButton = document.querySelector('.upload-dropzone .primary-btn');
 if (uploadButton) {
   const input = document.createElement('input');
@@ -557,3 +678,4 @@ if (uploadButton) {
 applyTheme(activeUser().theme || 'light');
 loadProfile();
 loadMyDocuments();
+loadConversations();
