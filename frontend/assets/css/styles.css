@@ -139,6 +139,16 @@ select {
   font-weight: 700;
 }
 
+.primary-btn:disabled,
+.ghost-btn:disabled,
+.soft-btn:disabled,
+.danger-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  transform: none;
+  box-shadow: none;
+}
+
 .primary-btn {
   background: linear-gradient(135deg, var(--primary), #2f7a84);
   color: #fff;
@@ -1069,6 +1079,22 @@ select {
   word-break: break-all;
 }
 
+.activity-detail {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  text-align: right;
+}
+
+.activity-detail span {
+  overflow-wrap: anywhere;
+}
+
+.activity-detail small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .row-actions {
   display: flex;
   align-items: center;
@@ -1140,8 +1166,14 @@ select {
   min-width: 980px;
 }
 
+.admin-user-table {
+  min-width: 760px;
+}
+
 .admin-document-table th,
-.admin-document-table td {
+.admin-document-table td,
+.admin-user-table th,
+.admin-user-table td {
   vertical-align: middle;
 }
 

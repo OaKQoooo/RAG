@@ -92,19 +92,8 @@
                 <h3>近期活动</h3>
               </div>
             </div>
-            <div class="activity-list">
-              <div class="activity-row">
-                <strong>admin_root</strong>
-                <span>上传《大坝安全监测系统验收规范》</span>
-              </div>
-              <div class="activity-row">
-                <strong>system</strong>
-                <span>文档 user_11_20260401_003.pdf 向量化完成</span>
-              </div>
-              <div class="activity-row">
-                <strong>admin_root</strong>
-                <span>将用户 engineer_04 设置为禁用</span>
-              </div>
+            <div class="activity-list" id="admin-activity-list">
+              <div class="empty-hint">暂无近期活动</div>
             </div>
           </div>
         </div>
@@ -163,38 +152,21 @@
               <div>
                 <h3>用户管理</h3>
               </div>
-              <input class="table-search" placeholder="搜索用户名">
+              <input id="admin-user-search" class="table-search" placeholder="搜索用户名、手机号、角色">
             </div>
 
-            <table class="data-table">
+            <table class="data-table admin-user-table">
               <thead>
                 <tr>
                   <th>用户名</th>
+                  <th>手机号</th>
                   <th>角色</th>
                   <th>状态</th>
-                  <th>最近会话</th>
+                  <th>注册时间</th>
+                  <th>操作</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td>engineer_01</td>
-                  <td>user</td>
-                  <td><span class="status-badge success">启用</span></td>
-                  <td>重力坝稳定性验算</td>
-                </tr>
-                <tr>
-                  <td>engineer_04</td>
-                  <td>user</td>
-                  <td><span class="status-badge danger">禁用</span></td>
-                  <td>施工缝处理要求</td>
-                </tr>
-                <tr>
-                  <td>admin_root</td>
-                  <td>admin</td>
-                  <td><span class="status-badge success">启用</span></td>
-                  <td>系统文档库巡检</td>
-                </tr>
-              </tbody>
+              <tbody id="admin-users-body"></tbody>
             </table>
           </div>
 

@@ -3,7 +3,11 @@ const adminTitle = document.getElementById('admin-view-title');
 const adminDocumentsBody = document.getElementById('admin-documents-body');
 const adminUploadList = document.getElementById('admin-upload-list');
 const adminDocumentSearch = document.getElementById('admin-document-search');
+const adminUsersBody = document.getElementById('admin-users-body');
+const adminUserSearch = document.getElementById('admin-user-search');
+const adminActivityList = document.getElementById('admin-activity-list');
 let adminDocumentRows = [];
+let adminUserRows = [];
 
 const loginUser = currentUser();
 if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
@@ -52,6 +56,10 @@ function roleText(role) {
   return role || '-';
 }
 
+function statusText(status) {
+  return status === 1 ? '启用' : '禁用';
+}
+
 function visibilityText(visibility) {
   if (visibility === 'public') return '公共知识库';
   if (visibility === 'private') return '个人文档';
@@ -97,6 +105,7 @@ async function deleteAdminDocument(documentId, fileName) {
     await requestJson(`/admin/documents/${documentId}`, { method: 'DELETE' });
     await loadDocuments();
     await loadOverview();
+    await loadActivities();
     alert('文档已删除');
   } catch (error) {
     alert(`删除失败：${error.message}`);
@@ -143,6 +152,19 @@ async function loadOverview() {
   } catch (error) {
     console.warn('加载总览失败', error);
   }
+}
+
+function createStatusButton(user) {
+  const isSelf = Number(user.id) === Number(loginUser.id);
+  const nextStatus = user.status === 1 ? 0 : 1;
+  const button = document.createElement('button');
+  button.className = `${nextStatus === 1 ? 'soft-btn' : 'danger-btn'} action-btn`;
+  button.type = 'button';
+  button.textContent = nextStatus === 1 ? '启用' : '禁用';
+  button.disabled = isSelf;
+  button.title = isSelf ? '不能操作当前登录账号' : '';
+  button.addEventListener('click', () => updateUserStatus(user, nextStatus));
+  return button;
 }
 
 function renderAdminDocumentTable(rows = []) {
@@ -228,23 +250,126 @@ async function loadDocuments() {
 }
 
 async function loadUsers() {
-  const tbody = document.querySelector('[data-view-panel="users"] tbody');
-  if (!tbody) return;
+  if (!adminUsersBody) return;
   try {
     const rows = await requestJson('/admin/users');
-    tbody.innerHTML = '';
-    rows.forEach((user) => {
-      const tr = document.createElement('tr');
-      tr.append(cell(user.username));
-      tr.append(cell(user.role));
-      const status = document.createElement('td');
-      status.innerHTML = `<span class="status-badge ${user.status === 1 ? 'success' : 'danger'}">${user.status === 1 ? '启用' : '禁用'}</span>`;
-      tr.append(status);
-      tr.append(cell('-'));
-      tbody.appendChild(tr);
-    });
+    adminUserRows = rows;
+    applyUserSearch();
   } catch (error) {
     console.warn('加载用户失败', error);
+    adminUsersBody.innerHTML = '<tr><td colspan="6" class="empty-table-cell">用户加载失败</td></tr>';
+  }
+}
+
+function renderActivities(rows = []) {
+  if (!adminActivityList) return;
+
+  adminActivityList.innerHTML = '';
+
+  if (!rows.length) {
+    adminActivityList.innerHTML = '<div class="empty-hint">暂无近期活动</div>';
+    return;
+  }
+
+  rows.forEach((activity) => {
+    const row = document.createElement('div');
+    row.className = 'activity-row';
+    row.innerHTML = `
+      <strong>${escapeHtml(activity.actorName || 'system')}</strong>
+      <div class="activity-detail">
+        <span>${escapeHtml(activity.message || activity.action || '-')}</span>
+        <small>${formatDateTime(activity.createdAt)}</small>
+      </div>
+    `;
+    adminActivityList.appendChild(row);
+  });
+}
+
+async function loadActivities() {
+  if (!adminActivityList) return;
+
+  try {
+    const rows = await requestJson('/admin/activities');
+    renderActivities(rows);
+  } catch (error) {
+    console.warn('加载近期活动失败', error);
+    adminActivityList.innerHTML = '<div class="empty-hint">近期活动加载失败</div>';
+  }
+}
+
+function renderAdminUserTable(rows = []) {
+  if (!adminUsersBody) return;
+
+  adminUsersBody.innerHTML = '';
+
+  if (!rows.length) {
+    adminUsersBody.innerHTML = '<tr><td colspan="6" class="empty-table-cell">暂无用户</td></tr>';
+    return;
+  }
+
+  rows.forEach((user) => {
+    const tr = document.createElement('tr');
+
+    tr.append(cell(user.username || '-'));
+    tr.append(cell(user.phone || '-'));
+    tr.append(cell(roleText(user.role)));
+
+    const statusCell = document.createElement('td');
+    statusCell.innerHTML = `
+      <span class="status-badge ${user.status === 1 ? 'success' : 'danger'}">
+        ${statusText(user.status)}
+      </span>
+    `;
+    tr.append(statusCell);
+
+    tr.append(cell(formatDateTime(user.createdAt)));
+
+    const actionCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.appendChild(createStatusButton(user));
+    actionCell.appendChild(actions);
+    tr.append(actionCell);
+
+    adminUsersBody.appendChild(tr);
+  });
+}
+
+function applyUserSearch() {
+  const keyword = (adminUserSearch?.value || '').trim().toLowerCase();
+
+  if (!keyword) {
+    renderAdminUserTable(adminUserRows);
+    return;
+  }
+
+  const filtered = adminUserRows.filter((user) => (
+    textIncludes(user.username, keyword)
+      || textIncludes(user.phone, keyword)
+      || textIncludes(user.role, keyword)
+      || textIncludes(roleText(user.role), keyword)
+      || textIncludes(statusText(user.status), keyword)
+  ));
+
+  renderAdminUserTable(filtered);
+}
+
+async function updateUserStatus(user, nextStatus) {
+  const actionText = nextStatus === 1 ? '启用' : '禁用';
+  const confirmed = window.confirm(`确认${actionText}用户「${user.username || user.phone}」吗？`);
+  if (!confirmed) return;
+
+  try {
+    await requestJson(`/admin/users/${user.id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: nextStatus })
+    });
+    await loadUsers();
+    await loadOverview();
+    await loadActivities();
+    alert(`用户已${actionText}`);
+  } catch (error) {
+    alert(`${actionText}失败：${error.message}`);
   }
 }
 
@@ -270,6 +395,7 @@ if (adminUploadButton) {
       if (!response.ok) throw new Error(await response.text());
       await loadDocuments();
       await loadOverview();
+      await loadActivities();
       alert('管理员文档已提交入库流程');
     } catch (error) {
       alert(`上传失败：${error.message}`);
@@ -283,6 +409,11 @@ if (adminDocumentSearch) {
   adminDocumentSearch.addEventListener('input', applyDocumentSearch);
 }
 
+if (adminUserSearch) {
+  adminUserSearch.addEventListener('input', applyUserSearch);
+}
+
 loadOverview();
+loadActivities();
 loadDocuments();
 loadUsers();
