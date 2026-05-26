@@ -2,6 +2,8 @@ const adminNavButtons = document.querySelectorAll('.admin-shell .nav-item');
 const adminTitle = document.getElementById('admin-view-title');
 const adminDocumentsBody = document.getElementById('admin-documents-body');
 const adminUploadList = document.getElementById('admin-upload-list');
+const adminDocumentSearch = document.getElementById('admin-document-search');
+let adminDocumentRows = [];
 
 const loginUser = currentUser();
 if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
@@ -30,6 +32,36 @@ function cell(text) {
   return td;
 }
 
+function formatDateTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function roleText(role) {
+  if (role === 'admin') return '管理员';
+  if (role === 'user') return '用户';
+  return role || '-';
+}
+
+function visibilityText(visibility) {
+  if (visibility === 'public') return '公共知识库';
+  if (visibility === 'private') return '个人文档';
+  return visibility || '-';
+}
+
+function textIncludes(value, keyword) {
+  return String(value || '').toLowerCase().includes(keyword);
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -41,7 +73,8 @@ function escapeHtml(value) {
 
 function statusBadgeClass(status = '') {
   if (status.includes('失败')) return 'danger';
-  if (status.includes('完成') || status.includes('入库')) return 'success';
+  if (status.includes('完成') || status.includes('已完成') || status.includes('入库')) return 'success';
+  if (status.includes('解析') || status.includes('处理中') || status.includes('正在')) return 'processing';
   return 'processing';
 }
 
@@ -55,12 +88,15 @@ function createDeleteButton(onClick) {
 }
 
 async function deleteAdminDocument(documentId, fileName) {
-  const confirmed = window.confirm(`确认删除文档《${fileName}》吗？`);
+  const confirmed = window.confirm(
+    `确认删除文档《${fileName}》吗？\n\n删除后系统会重新构建知识库，过程可能需要一段时间。`
+  );
   if (!confirmed) return;
 
   try {
     await requestJson(`/admin/documents/${documentId}`, { method: 'DELETE' });
     await loadDocuments();
+    await loadOverview();
     alert('文档已删除');
   } catch (error) {
     alert(`删除失败：${error.message}`);
@@ -82,7 +118,10 @@ function renderAdminUploadList(documents = []) {
     row.innerHTML = `
       <div class="upload-row-main">
         <span>${escapeHtml(doc.fileName)}</span>
-        <span class="status-badge ${statusBadgeClass(doc.processStatus)}">${escapeHtml(doc.processStatus)}</span>
+        <span>${formatDateTime(doc.createdAt)}</span>
+        <span class="status-badge ${statusBadgeClass(doc.processStatus)}">
+          ${escapeHtml(doc.processStatus || '待处理')}
+        </span>
       </div>
     `;
     const actions = document.createElement('div');
@@ -106,33 +145,82 @@ async function loadOverview() {
   }
 }
 
+function renderAdminDocumentTable(rows = []) {
+  if (!adminDocumentsBody) return;
+
+  adminDocumentsBody.innerHTML = '';
+
+  if (!rows.length) {
+    adminDocumentsBody.innerHTML = '<tr><td colspan="8" class="empty-table-cell">暂无文档</td></tr>';
+    return;
+  }
+
+  rows.forEach((doc) => {
+    const tr = document.createElement('tr');
+
+    tr.append(cell(doc.fileName));
+    tr.append(cell(doc.uploadedBy));
+    tr.append(cell(roleText(doc.uploadRole)));
+    tr.append(cell(visibilityText(doc.visibility)));
+
+    const statusCell = document.createElement('td');
+    statusCell.innerHTML = `
+      <span class="status-badge ${statusBadgeClass(doc.processStatus)}">
+        ${escapeHtml(doc.processStatus || '待处理')}
+      </span>
+    `;
+    tr.append(statusCell);
+
+    tr.append(cell(formatDateTime(doc.createdAt)));
+
+    const errorCell = document.createElement('td');
+    errorCell.className = 'error-text';
+    errorCell.title = doc.errorMessage || '';
+    errorCell.textContent = doc.errorMessage || '-';
+    tr.append(errorCell);
+
+    const actionCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
+    actionCell.appendChild(actions);
+    tr.append(actionCell);
+
+    adminDocumentsBody.appendChild(tr);
+  });
+}
+
+function applyDocumentSearch() {
+  const keyword = (adminDocumentSearch?.value || '').trim().toLowerCase();
+
+  if (!keyword) {
+    renderAdminDocumentTable(adminDocumentRows);
+    return;
+  }
+
+  const filtered = adminDocumentRows.filter((doc) => (
+    textIncludes(doc.fileName, keyword)
+      || textIncludes(doc.storedName, keyword)
+      || textIncludes(doc.uploadedBy, keyword)
+      || textIncludes(doc.uploadRole, keyword)
+      || textIncludes(doc.visibility, keyword)
+      || textIncludes(doc.processStatus, keyword)
+      || textIncludes(doc.errorMessage, keyword)
+  ));
+
+  renderAdminDocumentTable(filtered);
+}
+
 async function loadDocuments() {
   if (!adminDocumentsBody) return;
   try {
     const rows = await requestJson('/admin/documents');
+    adminDocumentRows = rows;
     renderAdminUploadList(rows);
-    adminDocumentsBody.innerHTML = '';
-    if (!rows.length) {
-      adminDocumentsBody.innerHTML = '<tr><td colspan="5" class="empty-table-cell">暂无文档</td></tr>';
-      return;
-    }
-    rows.forEach((doc) => {
-      const tr = document.createElement('tr');
-      tr.append(cell(doc.fileName));
-      tr.append(cell(doc.storedName));
-      tr.append(cell(doc.uploadedBy));
-      tr.append(cell(doc.uploadRole));
-      const actionCell = document.createElement('td');
-      const actions = document.createElement('div');
-      actions.className = 'row-actions';
-      actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
-      actionCell.appendChild(actions);
-      tr.append(actionCell);
-      adminDocumentsBody.appendChild(tr);
-    });
+    applyDocumentSearch();
   } catch (error) {
     console.warn('加载文档失败', error);
-    adminDocumentsBody.innerHTML = '<tr><td colspan="5" class="empty-table-cell">文档加载失败</td></tr>';
+    adminDocumentsBody.innerHTML = '<tr><td colspan="8" class="empty-table-cell">文档加载失败</td></tr>';
     if (adminUploadList) {
       adminUploadList.innerHTML = '<div class="empty-hint">管理员文档加载失败</div>';
     }
@@ -170,6 +258,7 @@ if (adminUploadButton) {
   document.body.appendChild(input);
   adminUploadButton.addEventListener('click', () => input.click());
   input.addEventListener('change', async () => {
+    if (!input.files.length) return;
     const formData = new FormData();
     [...input.files].forEach((file) => formData.append('files', file));
     try {
@@ -180,11 +269,18 @@ if (adminUploadButton) {
       });
       if (!response.ok) throw new Error(await response.text());
       await loadDocuments();
+      await loadOverview();
       alert('管理员文档已提交入库流程');
     } catch (error) {
       alert(`上传失败：${error.message}`);
+    } finally {
+      input.value = '';
     }
   });
+}
+
+if (adminDocumentSearch) {
+  adminDocumentSearch.addEventListener('input', applyDocumentSearch);
 }
 
 loadOverview();

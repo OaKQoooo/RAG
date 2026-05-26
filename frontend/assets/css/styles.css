@@ -1132,6 +1132,31 @@ select {
   font-weight: 700;
 }
 
+.doc-table-panel {
+  overflow-x: auto;
+}
+
+.admin-document-table {
+  min-width: 980px;
+}
+
+.admin-document-table th,
+.admin-document-table td {
+  vertical-align: middle;
+}
+
+.admin-document-table td {
+  max-width: 220px;
+}
+
+.error-text {
+  max-width: 220px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .table-search {
   min-width: 220px;
 }

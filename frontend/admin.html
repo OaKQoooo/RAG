@@ -134,16 +134,19 @@
               <div>
                 <h3>文档库管理</h3>
               </div>
-              <input class="table-search" placeholder="搜索文件或上传者">
+              <input id="admin-document-search" class="table-search" placeholder="搜索文件名、上传者、状态">
             </div>
 
-            <table class="data-table">
+            <table class="data-table admin-document-table">
               <thead>
                 <tr>
-                  <th>原始文件名</th>
-                  <th>存储名</th>
+                  <th>文件名</th>
                   <th>上传者</th>
-                  <th>角色</th>
+                  <th>来源</th>
+                  <th>可见范围</th>
+                  <th>入库状态</th>
+                  <th>上传时间</th>
+                  <th>错误信息</th>
                   <th>操作</th>
                 </tr>
               </thead>

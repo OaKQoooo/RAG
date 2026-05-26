@@ -9,6 +9,7 @@ import com.example.damrag.repository.KbClauseRepository;
 import com.example.damrag.repository.KbDocumentRepository;
 import com.example.damrag.repository.UserRepository;
 import com.example.damrag.service.AuthService;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -56,7 +57,13 @@ public class AdminController {
     @GetMapping("/documents")
     public List<KbDocument> documents(@RequestHeader(value = "Authorization", required = false) String token) {
         requireAdmin(token);
-        return documentRepository.findAll();
+        return documentRepository.findAll()
+                .stream()
+                .sorted(Comparator.comparing(
+                        KbDocument::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                ))
+                .toList();
     }
 
     @PostMapping("/documents/upload")
