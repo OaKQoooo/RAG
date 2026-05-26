@@ -1,7 +1,9 @@
 package com.example.damrag.controller;
 
 import com.example.damrag.model.KbDocument;
+import com.example.damrag.model.User;
 import com.example.damrag.repository.KbDocumentRepository;
+import com.example.damrag.service.AuthService;
 import com.example.damrag.service.RagClient;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,39 +22,43 @@ import com.example.damrag.dto.DocumentDtos.IngestResponse;
 public class DocumentController {
     private final KbDocumentRepository documentRepository;
     private final RagClient ragClient;
+    private final AuthService authService;
     private final Path uploadDir;
 
     public DocumentController(
             KbDocumentRepository documentRepository,
             RagClient ragClient,
+            AuthService authService,
             @Value("${rag.upload-dir}") String uploadDir
     ) {
         this.documentRepository = documentRepository;
         this.ragClient = ragClient;
+        this.authService = authService;
         this.uploadDir = Path.of(uploadDir);
     }
 
     @GetMapping("/my")
-    public List<KbDocument> myDocuments(@RequestParam Long userId) {
-        return documentRepository.findByUploadedByOrderByCreatedAtDesc(userId);
+    public List<KbDocument> myDocuments(@RequestHeader(value = "Authorization", required = false) String token) {
+        return documentRepository.findByUploadedByOrderByCreatedAtDesc(currentUserId(token));
     }
 
     @GetMapping("/visible")
-    public List<KbDocument> visibleDocuments(@RequestParam Long userId) {
-        return documentRepository.findByVisibilityOrUploadedByOrderByCreatedAtDesc("public", userId);
+    public List<KbDocument> visibleDocuments(@RequestHeader(value = "Authorization", required = false) String token) {
+        return documentRepository.findByVisibilityOrUploadedByOrderByCreatedAtDesc("public", currentUserId(token));
     }
 
     @PostMapping("/upload")
     public List<KbDocument> uploadUserDocuments(
-            @RequestParam Long userId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @RequestParam(defaultValue = "private") String visibility,
             @RequestParam("files") MultipartFile[] files
     ) {
-        return upload(files, userId, "user", visibility);
+        return upload(files, currentUserId(token), "user", visibility);
     }
 
     @DeleteMapping("/{id}")
-    public void deleteUserDocument(@PathVariable Long id, @RequestParam Long userId) {
+    public void deleteUserDocument(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id) {
+        Long userId = currentUserId(token);
         KbDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
         if (!userId.equals(document.getUploadedBy())) {
@@ -136,5 +142,10 @@ public class DocumentController {
         String safe = originalName.replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
         String stamp = DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(java.time.LocalDateTime.now());
         return role + "_" + userId + "_" + stamp + "_" + safe;
+    }
+
+    private Long currentUserId(String token) {
+        User user = authService.requireUser(token);
+        return user.getId();
     }
 }

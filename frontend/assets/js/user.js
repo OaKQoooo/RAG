@@ -175,7 +175,7 @@ function closePasswordModal() {
 async function loadProfile() {
   const user = activeUser();
   try {
-    const profile = await requestJson(`/profile?userId=${user.id}`);
+    const profile = await requestJson('/profile');
     refreshStoredUser(profile);
     renderProfile(profile);
   } catch (error) {
@@ -193,7 +193,7 @@ async function saveProfile() {
   if (saveProfileButton) saveProfileButton.disabled = true;
   showSettingsMessage(profileMessage, '保存中...');
   try {
-    const profile = await requestJson(`/profile?userId=${user.id}`, {
+    const profile = await requestJson('/profile', {
       method: 'PATCH',
       body: JSON.stringify({ username, theme })
     });
@@ -227,7 +227,7 @@ async function changePhone() {
   if (modalFinishPhoneButton) modalFinishPhoneButton.disabled = true;
   showSettingsMessage(modalPhoneMessage, '换绑中...');
   try {
-    const profile = await requestJson(`/profile/phone?userId=${user.id}`, {
+    const profile = await requestJson('/profile/phone', {
       method: 'POST',
       body: JSON.stringify({ oldPhoneSmsCode, newPhone, newPhoneSmsCode })
     });
@@ -268,7 +268,7 @@ async function changePassword() {
   if (modalFinishPasswordButton) modalFinishPasswordButton.disabled = true;
   showSettingsMessage(modalPasswordMessage, '保存中...');
   try {
-    const result = await requestJson(`/profile/password?userId=${user.id}`, {
+    const result = await requestJson('/profile/password', {
       method: 'POST',
       body: JSON.stringify({ oldPassword, newPassword, confirmPassword })
     });
@@ -287,7 +287,7 @@ async function clearConversationHistory() {
   if (clearHistoryButton) clearHistoryButton.disabled = true;
   showSettingsMessage(historyMessage, '清理中...');
   try {
-    const result = await requestJson(`/profile/conversations?userId=${user.id}`, { method: 'DELETE' });
+    const result = await requestJson('/profile/conversations', { method: 'DELETE' });
     selectedConversationIds.clear();
     resetNewChatState();
     await loadConversations();
@@ -311,9 +311,9 @@ async function deleteSelectedConversations() {
   if (deleteSelectedConversationsButton) deleteSelectedConversationsButton.disabled = true;
   showSettingsMessage(historyMessage, '删除中...');
   try {
-    const result = await requestJson(`/conversations?userId=${user.id}`, {
+    const result = await requestJson('/conversations', {
       method: 'DELETE',
-      body: JSON.stringify({ userId: user.id, conversationIds })
+      body: JSON.stringify({ conversationIds })
     });
 
     if (conversationIds.some((id) => String(id) === String(activeConversationId))) {
@@ -620,14 +620,14 @@ async function refreshDataManagementSummary() {
   try {
     const conversations = recentConversations.length
       ? recentConversations
-      : await requestJson(`/conversations?userId=${user.id}`);
+      : await requestJson('/conversations');
     recentConversations = conversations;
 
     renderDataManagementSummary({ conversations });
 
     let messageCount = 0;
     for (const conversation of conversations) {
-      const messages = await requestJson(`/conversations/${conversation.id}/messages?userId=${user.id}`);
+      const messages = await requestJson(`/conversations/${conversation.id}/messages`);
       messageCount += messages.length;
     }
 
@@ -705,7 +705,7 @@ async function loadConversations() {
   const user = activeUser();
 
   try {
-    const conversations = await requestJson(`/conversations?userId=${user.id}`);
+    const conversations = await requestJson('/conversations');
     renderConversations(conversations);
     renderDataManagementSummary({ conversations });
   } catch (error) {
@@ -732,7 +732,7 @@ async function loadConversationMessages(conversationId) {
       messageStream.innerHTML = '';
     }
 
-    const messages = await requestJson(`/conversations/${conversationId}/messages?userId=${user.id}`);
+    const messages = await requestJson(`/conversations/${conversationId}/messages`);
 
     if (!messages.length && messageStream) {
       messageStream.innerHTML = `
@@ -784,7 +784,7 @@ async function exportChatRecords(exportAll = false) {
   try {
     let conversations = recentConversations;
     if (!conversations.length) {
-      conversations = await requestJson(`/conversations?userId=${user.id}`);
+      conversations = await requestJson('/conversations');
       renderConversations(conversations);
     }
 
@@ -823,7 +823,7 @@ async function exportChatRecords(exportAll = false) {
     ]];
 
     for (const conversation of exportConversations) {
-      const messages = await requestJson(`/conversations/${conversation.id}/messages?userId=${user.id}`);
+      const messages = await requestJson(`/conversations/${conversation.id}/messages`);
       const userMessageCount = messages.filter((message) => message.role === 'user').length;
       const assistantMessageCount = messages.filter((message) => message.role === 'assistant').length;
 
@@ -916,7 +916,7 @@ async function deleteUserDocument(documentId, fileName) {
   if (!confirmed) return;
 
   try {
-    await requestJson(`/documents/${documentId}?userId=${user.id}`, { method: 'DELETE' });
+    await requestJson(`/documents/${documentId}`, { method: 'DELETE' });
     await loadMyDocuments();
     alert('文档已删除');
   } catch (error) {
@@ -976,7 +976,7 @@ function renderUserDocumentsTable(documents = []) {
 async function loadMyDocuments() {
   const user = activeUser();
   try {
-    const documents = await requestJson(`/documents/my?userId=${user.id}`);
+    const documents = await requestJson('/documents/my');
     renderUserUploadList(documents);
     renderUserDocumentsTable(documents);
   } catch (error) {
@@ -1002,7 +1002,6 @@ async function sendMessage() {
     const data = await requestJson('/chat', {
       method: 'POST',
       body: JSON.stringify({
-        userId: user.id,
         conversationId: activeConversationId,
         question: text,
         history: [],
@@ -1194,8 +1193,9 @@ if (uploadButton) {
     const formData = new FormData();
     [...input.files].forEach((file) => formData.append('files', file));
     try {
-      const response = await fetch(`${API_BASE}/documents/upload?userId=${user.id}&visibility=private`, {
+      const response = await fetch(`${API_BASE}/documents/upload?visibility=private`, {
         method: 'POST',
+        headers: authHeaders(),
         body: formData
       });
       if (!response.ok) throw new Error(await response.text());

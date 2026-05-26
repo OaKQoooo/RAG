@@ -89,7 +89,7 @@ public class AuthService {
     }
 
     public UserView currentUser(String token) {
-        return toView(validateToken(token));
+        return toView(requireUser(token));
     }
 
     public LogoutResult logout(String token) {
@@ -101,6 +101,22 @@ public class AuthService {
         Long userId = userIdFromToken(token);
         return userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录已失效"));
+    }
+
+    public User requireUser(String token) {
+        User user = validateToken(token);
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account disabled");
+        }
+        return user;
+    }
+
+    public User requireAdmin(String token) {
+        User user = requireUser(token);
+        if (!"admin".equals(user.getRole())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin permission required");
+        }
+        return user;
     }
 
     public boolean checkPermission(User loginUser, String resource) {

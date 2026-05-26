@@ -8,6 +8,7 @@ import com.example.damrag.repository.KbChunkRepository;
 import com.example.damrag.repository.KbClauseRepository;
 import com.example.damrag.repository.KbDocumentRepository;
 import com.example.damrag.repository.UserRepository;
+import com.example.damrag.service.AuthService;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -23,23 +24,27 @@ public class AdminController {
     private final KbClauseRepository clauseRepository;
     private final KbChunkRepository chunkRepository;
     private final DocumentController documentController;
+    private final AuthService authService;
 
     public AdminController(
             KbDocumentRepository documentRepository,
             UserRepository userRepository,
             KbClauseRepository clauseRepository,
             KbChunkRepository chunkRepository,
-            DocumentController documentController
+            DocumentController documentController,
+            AuthService authService
     ) {
         this.documentRepository = documentRepository;
         this.userRepository = userRepository;
         this.clauseRepository = clauseRepository;
         this.chunkRepository = chunkRepository;
         this.documentController = documentController;
+        this.authService = authService;
     }
 
     @GetMapping("/overview")
-    public Map<String, Long> overview() {
+    public Map<String, Long> overview(@RequestHeader(value = "Authorization", required = false) String token) {
+        requireAdmin(token);
         return Map.of(
                 "documentCount", documentRepository.count(),
                 "userCount", userRepository.count(),
@@ -49,30 +54,35 @@ public class AdminController {
     }
 
     @GetMapping("/documents")
-    public List<KbDocument> documents() {
+    public List<KbDocument> documents(@RequestHeader(value = "Authorization", required = false) String token) {
+        requireAdmin(token);
         return documentRepository.findAll();
     }
 
     @PostMapping("/documents/upload")
     public List<KbDocument> uploadAdminDocuments(
-            @RequestParam Long userId,
+            @RequestHeader(value = "Authorization", required = false) String token,
             @RequestParam("files") MultipartFile[] files
     ) {
-        return documentController.upload(files, userId, "admin", "public");
+        User admin = requireAdmin(token);
+        return documentController.upload(files, admin.getId(), "admin", "public");
     }
 
     @DeleteMapping("/documents/{id}")
-    public void deleteDocument(@PathVariable Long id) {
+    public void deleteDocument(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id) {
+        requireAdmin(token);
         documentController.deleteDocumentById(id);
     }
 
     @GetMapping("/users")
-    public List<UserView> users() {
+    public List<UserView> users(@RequestHeader(value = "Authorization", required = false) String token) {
+        requireAdmin(token);
         return userRepository.findAll().stream().map(this::toView).toList();
     }
 
     @PatchMapping("/users/{id}/status")
-    public UserView updateStatus(@PathVariable Long id, @RequestBody StatusRequest request) {
+    public UserView updateStatus(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id, @RequestBody StatusRequest request) {
+        requireAdmin(token);
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));
         user.setStatus(request.status());
@@ -89,5 +99,9 @@ public class AdminController {
                 user.getAvatarUrl(),
                 user.getTheme()
         );
+    }
+
+    private User requireAdmin(String token) {
+        return authService.requireAdmin(token);
     }
 }

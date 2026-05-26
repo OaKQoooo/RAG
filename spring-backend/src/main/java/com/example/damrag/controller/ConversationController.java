@@ -37,42 +37,36 @@ public class ConversationController {
 
     @GetMapping("/conversations")
     public List<ConversationView> conversations(
-            @RequestHeader(value = "Authorization", required = false) String token,
-            @RequestParam(required = false) Long userId
+            @RequestHeader(value = "Authorization", required = false) String token
     ) {
-        return conversationService.listConversations(currentUserId(token, userId));
+        return conversationService.listConversations(currentUserId(token));
     }
 
     @PostMapping("/conversations")
     public ConversationView createConversation(
             @RequestHeader(value = "Authorization", required = false) String token,
-            @RequestParam(required = false) Long userId,
             @RequestParam(required = false) String title,
             @RequestBody(required = false) CreateConversationRequest request
     ) {
-        Long resolvedUserId = currentUserId(token, request != null && request.userId() != null ? request.userId() : userId);
         String resolvedTitle = request != null && request.title() != null ? request.title() : title;
-        return conversationService.createConversation(resolvedUserId, resolvedTitle);
+        return conversationService.createConversation(currentUserId(token), resolvedTitle);
     }
 
     @DeleteMapping("/conversations")
     public Result deleteConversations(
             @RequestHeader(value = "Authorization", required = false) String token,
-            @RequestParam(required = false) Long userId,
             @RequestBody(required = false) DeleteConversationsRequest request
     ) {
-        Long resolvedUserId = currentUserId(token, request != null && request.userId() != null ? request.userId() : userId);
         List<Long> conversationIds = request == null || request.conversationIds() == null ? List.of() : request.conversationIds();
-        return conversationService.deleteConversations(resolvedUserId, conversationIds);
+        return conversationService.deleteConversations(currentUserId(token), conversationIds);
     }
 
     @GetMapping("/conversations/{id}/messages")
     public List<MessageView> messages(
             @RequestHeader(value = "Authorization", required = false) String token,
-            @PathVariable Long id,
-            @RequestParam(required = false) Long userId
+            @PathVariable Long id
     ) {
-        Long resolvedUserId = currentUserId(token, userId);
+        Long resolvedUserId = currentUserId(token);
         conversationService.checkOwner(resolvedUserId, id);
         return messageService.listMessages(id);
     }
@@ -82,15 +76,11 @@ public class ConversationController {
             @RequestHeader(value = "Authorization", required = false) String token,
             @RequestBody ChatRequest request
     ) {
-        Long requestUserId = request == null ? null : request.userId();
-        return chatService.ask(currentUserId(token, requestUserId), request);
+        return chatService.ask(currentUserId(token), request);
     }
 
-    private Long currentUserId(String token, Long fallbackUserId) {
-        if (token != null && !token.isBlank()) {
-            User user = authService.validateToken(token);
-            return user.getId();
-        }
-        return fallbackUserId == null ? 1L : fallbackUserId;
+    private Long currentUserId(String token) {
+        User user = authService.requireUser(token);
+        return user.getId();
     }
 }

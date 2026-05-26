@@ -50,12 +50,12 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public UserView me(@RequestParam Long userId) {
-        return authService.me(userId);
+    public UserView me(@RequestHeader(value = "Authorization", required = false) String token) {
+        return authService.currentUser(token);
     }
 
     @PatchMapping("/me")
-    public UserView updateMe(@RequestParam Long userId, @RequestBody Map<String, String> body) {
-        return authService.updateMe(userId, body);
+    public UserView updateMe(@RequestHeader(value = "Authorization", required = false) String token, @RequestBody Map<String, String> body) {
+        return authService.updateMe(authService.requireUser(token).getId(), body);
     }
 }

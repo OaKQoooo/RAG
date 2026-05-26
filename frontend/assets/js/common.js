@@ -18,6 +18,11 @@ function clearSession() {
   localStorage.removeItem('dam_rag_user');
 }
 
+function authHeaders() {
+  const token = localStorage.getItem('dam_rag_token') || '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function requireSession() {
   if (!document.querySelector('.app-shell')) return;
   const token = localStorage.getItem('dam_rag_token') || '';
@@ -30,14 +35,14 @@ function requireSession() {
 }
 
 async function requestJson(path, options = {}) {
-  const token = localStorage.getItem('dam_rag_token') || '';
+  const { headers = {}, ...fetchOptions } = options;
   const response = await fetch(`${API_BASE}${path}`, {
+    ...fetchOptions,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {})
-    },
-    ...options
+      ...authHeaders(),
+      ...headers
+    }
   });
   if (!response.ok) {
     const text = await response.text();

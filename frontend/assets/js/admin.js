@@ -3,7 +3,8 @@ const adminTitle = document.getElementById('admin-view-title');
 const adminDocumentsBody = document.getElementById('admin-documents-body');
 const adminUploadList = document.getElementById('admin-upload-list');
 
-if (window.DAM_RAG_LOGIN_REQUIRED || !currentUser()) {
+const loginUser = currentUser();
+if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
   window.location.href = './index.html';
   throw new Error('Login required');
 }
@@ -169,12 +170,12 @@ if (adminUploadButton) {
   document.body.appendChild(input);
   adminUploadButton.addEventListener('click', () => input.click());
   input.addEventListener('change', async () => {
-    const user = currentUser();
     const formData = new FormData();
     [...input.files].forEach((file) => formData.append('files', file));
     try {
-      const response = await fetch(`${API_BASE}/admin/documents/upload?userId=${user.id}`, {
+      const response = await fetch(`${API_BASE}/admin/documents/upload`, {
         method: 'POST',
+        headers: authHeaders(),
         body: formData
       });
       if (!response.ok) throw new Error(await response.text());

@@ -7,7 +7,6 @@ import java.util.List;
 public class ChatDtos {
     public record ChatTurn(String role, String content) {}
     public record ChatRequest(
-            Long userId,
             Long conversationId,
             String question,
             List<ChatTurn> history,
@@ -20,8 +19,8 @@ public class ChatDtos {
     public record ReferenceItem(String sourceFile, String clauseId, String chapter, Integer page, String bboxJson, String imageUrl, String contentPreview, Long documentId) {}
     public record ChatResponse(Long conversationId, String answer, List<ReferenceItem> references, List<String> suggestions) {}
     public record ConversationView(Long id, Long userId, String title, LocalDateTime createdAt, LocalDateTime updatedAt) {}
-    public record CreateConversationRequest(Long userId, String title) {}
-    public record DeleteConversationsRequest(Long userId, List<Long> conversationIds) {}
+    public record CreateConversationRequest(String title) {}
+    public record DeleteConversationsRequest(List<Long> conversationIds) {}
     public record MessageReferenceView(
             Long id,
             Long messageId,
