@@ -9,13 +9,20 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
-import com.example.damrag.dto.DocumentDtos.IngestResponse;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -74,10 +81,14 @@ public class DocumentController {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法创建上传目录");
         }
 
-        return List.of(files).stream().map(file -> {
+        List<KbDocument> allDocuments = new ArrayList<>();
+        List<KbDocument> savedDocuments = new ArrayList<>();
+
+        for (MultipartFile file : files) {
             if (file.isEmpty() || file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持非空 PDF 文件");
             }
+
             String storedName = storedName(userId, role, file.getOriginalFilename());
             Path storedPath = uploadDir.resolve(storedName);
             KbDocument document = new KbDocument();
@@ -88,12 +99,20 @@ public class DocumentController {
             document.setVisibility(visibility);
             document.setProcessStatus("正在解析");
             document = documentRepository.save(document);
+            allDocuments.add(document);
 
             try {
                 file.transferTo(storedPath);
-                document.setProcessStatus("正在解析");
+                savedDocuments.add(document);
+            } catch (Exception e) {
+                document.setProcessStatus("处理失败");
+                document.setErrorMessage(e.getMessage());
                 documentRepository.save(document);
+            }
+        }
 
+        if (!savedDocuments.isEmpty()) {
+            try {
                 List<KbDocument> activeDocuments = documentRepository.findAll()
                         .stream()
                         .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
@@ -101,14 +120,21 @@ public class DocumentController {
 
                 ragClient.rebuild(activeDocuments, uploadDir);
 
-                document.setProcessStatus("已完成");
-                document.setErrorMessage(null);
+                savedDocuments.forEach(document -> {
+                    document.setProcessStatus("已完成");
+                    document.setErrorMessage(null);
+                    documentRepository.save(document);
+                });
             } catch (Exception e) {
-                document.setProcessStatus("处理失败");
-                document.setErrorMessage(e.getMessage());
+                savedDocuments.forEach(document -> {
+                    document.setProcessStatus("处理失败");
+                    document.setErrorMessage(e.getMessage());
+                    documentRepository.save(document);
+                });
             }
-            return documentRepository.save(document);
-        }).toList();
+        }
+
+        return allDocuments;
     }
 
     protected void deleteDocumentById(Long id) {

@@ -32,6 +32,7 @@ from rag_config import STEP1_OUTPUT_DIR
 
 import step2
 import step3
+from check_ingest_quality import build_quality_report
 from rag_config import (
     CHAT_MODEL,
     CHROMA_DIR,
@@ -124,6 +125,7 @@ class IngestResponse(BaseModel):
     document_id: Optional[str] = None
     chunks: int
     status: str
+    quality_report: Optional[dict[str, Any]] = None
 
 class RebuildDocument(BaseModel):
     document_id: Optional[str] = None
@@ -133,6 +135,13 @@ class RebuildDocument(BaseModel):
 
 class RebuildRequest(BaseModel):
     documents: list[RebuildDocument]
+
+
+class DebugSearchRequest(BaseModel):
+    question: str
+    top_k: int = Field(default=10, alias="topK")
+    document_ids: list[Any] = Field(default_factory=list, alias="documentIds")
+    restrict_documents: bool = Field(default=False, alias="restrictDocuments")
 
 
 class DashScopeReranker(BaseDocumentCompressor):
@@ -397,7 +406,18 @@ class RagEngine:
         )
         return ChatResponse(answer=answer, references=refs, suggestions=suggestions)
 
-    def _filter_documents(self, docs: list[Document], request: ChatRequest) -> list[Document]:
+    def debug_search(self, request: DebugSearchRequest) -> list[dict[str, Any]]:
+        docs = self._filter_documents(self.retriever.invoke(request.question), request)
+        return [
+            {
+                "rank": idx + 1,
+                "content_preview": doc.page_content[:300],
+                "metadata": doc.metadata,
+            }
+            for idx, doc in enumerate(docs[: request.top_k])
+        ]
+
+    def _filter_documents(self, docs: list[Document], request: ChatRequest | DebugSearchRequest) -> list[Document]:
         if not request.restrict_documents:
             return docs
         allowed_ids = {str(item) for item in request.document_ids if item is not None}
@@ -489,6 +509,17 @@ def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.post("/api/rag/debug/search")
+def debug_search(request: DebugSearchRequest):
+    try:
+        return {
+            "question": request.question,
+            "results": get_engine().debug_search(request),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.post("/api/rag/documents/ingest", response_model=IngestResponse)
 def ingest_document(
     file: UploadFile = File(...),
@@ -510,12 +541,14 @@ def ingest_document(
         process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
         step2.build_structured_dataset()
         chunks = step3.ingest(drop_old=not append)
+        quality_report = build_quality_report()
         _engine = None
         return IngestResponse(
             file_name=file.filename,
             document_id=document_id,
             chunks=chunks,
             status="completed",
+            quality_report=quality_report,
         )
     except Exception as exc:
         traceback.print_exc()
@@ -545,6 +578,7 @@ def rebuild_documents(request: RebuildRequest):
 
         step2.build_structured_dataset(input_folder=STEP1_OUTPUT_DIR)
         chunks = step3.ingest(drop_old=True)
+        quality_report = build_quality_report()
 
         _engine = None
         return IngestResponse(
@@ -552,6 +586,7 @@ def rebuild_documents(request: RebuildRequest):
             document_id=None,
             chunks=chunks,
             status="completed",
+            quality_report=quality_report,
         )
     except Exception as exc:
         traceback.print_exc()
