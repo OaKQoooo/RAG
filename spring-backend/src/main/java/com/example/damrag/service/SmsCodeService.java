@@ -49,7 +49,7 @@ public class SmsCodeService {
         }
 
         if (!record.code().equals(smsCode.trim())) {
-            throw new IllegalArgumentException("Invalid SMS code.");
+            throw new IllegalArgumentException("验证码错误");
         }
 
         codeStore.remove(key);

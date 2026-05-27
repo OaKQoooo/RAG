@@ -4,7 +4,7 @@ const composerInput = document.getElementById('composer-input');
 const messageStream = document.getElementById('message-stream');
 const evidenceStack = document.querySelector('.evidence-stack');
 const suggestionRow = document.getElementById('suggestion-row') || document.querySelector('.suggestion-row');
-const evidenceToggle = document.getElementById('evidence-toggle');
+const closeEvidenceButton = document.getElementById('close-evidence-panel');
 const exportChatButton = document.getElementById('export-chat-records');
 const exportAllRecordsButton = document.getElementById('export-all-records-btn');
 const chatWorkspace = document.getElementById('chat-workspace');
@@ -55,6 +55,7 @@ const newChatNavButton = document.querySelector('.nav-item[data-view="chat"]');
 let activeConversationId = null;
 let evidenceEnabled = false;
 let latestReferences = [];
+let activeEvidenceIndex = 0;
 let latestProfile = null;
 let recentConversations = [];
 const selectedConversationIds = new Set();
@@ -71,6 +72,12 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function renderMessageMarkdown(value) {
+  return escapeHtml(value)
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\r?\n/g, '<br>');
 }
 
 function activeUser() {
@@ -126,8 +133,29 @@ function renderProfile(profile) {
   }
 }
 
-function showDemoCodeMessage(element, targetText) {
-  showSettingsMessage(element, `${targetText}已发送，演示验证码：123456`, 'success');
+function validPhone(phone = '') {
+  return /^1[3-9]\d{9}$/.test(String(phone || '').trim());
+}
+
+async function sendSmsCodeForPhone(phone, scene, targetText) {
+  const normalizedPhone = String(phone || '').trim();
+  if (!validPhone(normalizedPhone)) {
+    showSettingsMessage(modalPhoneMessage, '请输入正确的手机号', 'error');
+    return;
+  }
+  try {
+    const data = await requestJson('/auth/sms-code', {
+      method: 'POST',
+      body: JSON.stringify({ phone: normalizedPhone, scene })
+    });
+    showSettingsMessage(
+      modalPhoneMessage,
+      `${targetText}已发送，测试验证码：${data.smsCode}`,
+      'success'
+    );
+  } catch (error) {
+    showSettingsMessage(modalPhoneMessage, `验证码发送失败：${error.message}`, 'error');
+  }
 }
 
 function setPhoneModalStep(step) {
@@ -330,7 +358,34 @@ async function deleteSelectedConversations() {
   }
 }
 
-function appendMessage(role, content, meta = '') {
+function showMessageEvidence(references = []) {
+  latestReferences = references;
+  activeEvidenceIndex = 0;
+  evidenceEnabled = true;
+  syncEvidenceLayout();
+  evidenceStack?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function hideEvidencePanel() {
+  evidenceEnabled = false;
+  syncEvidenceLayout();
+}
+
+function createEvidenceAction(references = []) {
+  const actions = document.createElement('div');
+  actions.className = 'message-actions';
+
+  const evidenceButton = document.createElement('button');
+  evidenceButton.className = 'message-evidence-btn';
+  evidenceButton.type = 'button';
+  evidenceButton.textContent = '查看原文';
+  evidenceButton.addEventListener('click', () => showMessageEvidence(references));
+
+  actions.appendChild(evidenceButton);
+  return actions;
+}
+
+function appendMessage(role, content, meta = '', references = []) {
   if (!messageStream) return;
   const emptyState = document.getElementById('chat-empty-state');
   if (emptyState) {
@@ -340,31 +395,93 @@ function appendMessage(role, content, meta = '') {
   article.className = `message ${role === 'user' ? 'user-message' : 'ai-message'}`;
   article.innerHTML = `
     <span class="message-role">${role === 'user' ? '用户' : '助手'}</span>
-    <p>${escapeHtml(content)}</p>
+    <p class="message-content">${renderMessageMarkdown(content)}</p>
     ${meta ? `<div class="message-meta">${escapeHtml(meta)}</div>` : ''}
   `;
+  if (role === 'assistant' && references.length) {
+    article.appendChild(createEvidenceAction(references));
+  }
   messageStream.appendChild(article);
   messageStream.scrollTop = messageStream.scrollHeight;
+  return article;
+}
+
+function updateMessage(article, content, meta = '', references = []) {
+  if (!article) return;
+  const contentElement = article.querySelector('.message-content');
+  if (contentElement) {
+    contentElement.innerHTML = renderMessageMarkdown(content);
+  }
+  article.querySelector('.message-meta')?.remove();
+  article.querySelector('.message-actions')?.remove();
+  if (meta) {
+    const metaElement = document.createElement('div');
+    metaElement.className = 'message-meta';
+    metaElement.textContent = meta;
+    article.appendChild(metaElement);
+  }
+  if (references.length) {
+    article.appendChild(createEvidenceAction(references));
+  }
+  messageStream.scrollTop = messageStream.scrollHeight;
+}
+
+function displaySourceName(value = '') {
+  return String(value || '未知规范')
+    .replace(/\.pdf$/i, '')
+    .replace(/^(user|admin)_\d+_\d{14}_/, '')
+    .replace(/\+/g, ' ')
+    .replace(/^DLT\s+/i, 'DL/T ');
+}
+
+function referenceImageUrl(ref = {}) {
+  return ref.imageUrl || ref.image_url || '';
 }
 
 function renderEvidence(references = []) {
   if (!evidenceStack) return;
   latestReferences = references;
-  evidenceStack.innerHTML = references.length ? '' : '<p class="empty-hint">暂无原文定位结果</p>';
-  references.forEach((ref) => {
-    const card = document.createElement('article');
-    card.className = 'evidence-card';
-    const preview = ref.imageUrl
-      ? `<img class="evidence-image" src="${escapeHtml(ref.imageUrl)}" alt="原文截图">`
-      : `<div class="evidence-preview page-preview"><div class="page-line long"></div><div class="page-highlight"></div><div class="page-line medium"></div></div>`;
-    card.innerHTML = `
-      <div class="evidence-preview">${preview}</div>
+  if (!references.length) {
+    evidenceStack.innerHTML = '<p class="empty-hint">暂无原文定位结果</p>';
+    return;
+  }
+
+  activeEvidenceIndex = Math.min(Math.max(activeEvidenceIndex, 0), references.length - 1);
+  const ref = references[activeEvidenceIndex];
+  const imageUrl = referenceImageUrl(ref);
+  const sourceName = displaySourceName(ref.sourceFile || ref.source_file || ref.standardName);
+  const clauseId = ref.clauseId || ref.clause_id || '';
+  const contentPreview = ref.contentPreview || ref.content_preview || '';
+  const preview = imageUrl
+    ? `<img class="evidence-image" src="${escapeHtml(imageUrl)}" alt="原文${activeEvidenceIndex + 1}截图">`
+    : `<div class="evidence-missing-image">原文页面截图暂不可用</div>`;
+
+  evidenceStack.innerHTML = `
+    <article class="evidence-card">
+      <div class="evidence-page ${references.length > 1 ? 'clickable' : ''}" ${references.length > 1 ? 'title="点击查看下一条原文"' : ''}>${preview}</div>
       <div class="evidence-info">
-        <h4>《${escapeHtml(ref.sourceFile || ref.source_file)}》</h4>
-        <p>页码：${escapeHtml(ref.page)} ｜ 条款：${escapeHtml(ref.clauseId || ref.clause_id)} ｜ bbox：${escapeHtml(ref.bboxJson || ref.bbox_json || '[]')}</p>
+        <p class="evidence-source">原文${activeEvidenceIndex + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(ref.page)} ｜ 条款：${escapeHtml(clauseId)}</p>
+        ${contentPreview ? `<p class="evidence-snippet">${escapeHtml(contentPreview)}</p>` : ''}
       </div>
-    `;
-    evidenceStack.appendChild(card);
+      <div class="evidence-nav">
+        <button class="soft-btn evidence-nav-btn" type="button" data-evidence-nav="prev" ${activeEvidenceIndex === 0 ? 'disabled' : ''}>上一条</button>
+        <span>${activeEvidenceIndex + 1} / ${references.length}</span>
+        <button class="soft-btn evidence-nav-btn" type="button" data-evidence-nav="next" ${activeEvidenceIndex >= references.length - 1 ? 'disabled' : ''}>下一条</button>
+      </div>
+    </article>
+  `;
+
+  evidenceStack.querySelector('[data-evidence-nav="prev"]')?.addEventListener('click', () => {
+    activeEvidenceIndex -= 1;
+    renderEvidence(latestReferences);
+  });
+  evidenceStack.querySelector('[data-evidence-nav="next"]')?.addEventListener('click', () => {
+    activeEvidenceIndex += 1;
+    renderEvidence(latestReferences);
+  });
+  evidenceStack.querySelector('.evidence-page.clickable')?.addEventListener('click', () => {
+    activeEvidenceIndex = (activeEvidenceIndex + 1) % latestReferences.length;
+    renderEvidence(latestReferences);
   });
 }
 
@@ -753,7 +870,8 @@ async function loadConversationMessages(conversationId) {
       appendMessage(
         message.role === 'user' ? 'user' : 'assistant',
         message.content || '',
-        clauses ? `引用条款：${clauses}` : ''
+        clauses ? `引用条款：${clauses}` : '',
+        references
       );
 
       if (message.role === 'assistant' && references.length) {
@@ -879,6 +997,7 @@ async function exportChatRecords(exportAll = false) {
 function resetNewChatState() {
   activeConversationId = null;
   latestReferences = [];
+  evidenceEnabled = false;
   if (chatSessionPill) {
     chatSessionPill.textContent = '当前为新对话';
   }
@@ -892,6 +1011,7 @@ function resetNewChatState() {
   }
   renderSuggestions([]);
   renderEvidence([]);
+  syncEvidenceLayout();
   renderConversations(recentConversations);
 }
 
@@ -995,6 +1115,7 @@ async function sendMessage() {
   if (!text) return;
   const user = activeUser();
   appendMessage('user', text);
+  const pendingMessage = appendMessage('assistant', '正在生成内容，请稍候...', '生成中');
   composerInput.value = '';
   sendButton.disabled = true;
 
@@ -1005,7 +1126,7 @@ async function sendMessage() {
         conversationId: activeConversationId,
         question: text,
         history: [],
-        enableEvidence: evidenceEnabled,
+        enableEvidence: true,
         enableSuggestions: true,
         knowledgeScope: 'ALL'
       })
@@ -1015,7 +1136,7 @@ async function sendMessage() {
       chatSessionPill.textContent = `会话编号：${data.conversationId}`;
     }
     const clauses = (data.references || []).map((ref) => ref.clauseId || ref.clause_id).filter(Boolean).join(' / ');
-    appendMessage('assistant', data.answer, clauses ? `引用条款：${clauses}` : '');
+    updateMessage(pendingMessage, data.answer, clauses ? `引用条款：${clauses}` : '', data.references || []);
     latestReferences = data.references || [];
     if (evidenceEnabled) {
       renderEvidence(latestReferences);
@@ -1024,7 +1145,7 @@ async function sendMessage() {
     await loadConversations();
     await refreshDataManagementSummary();
   } catch (error) {
-    appendMessage('assistant', `请求后端失败：${error.message}`);
+    updateMessage(pendingMessage, `请求后端失败：${error.message}`);
   } finally {
     sendButton.disabled = false;
   }
@@ -1033,7 +1154,16 @@ async function sendMessage() {
 if (sendButton && composerInput) {
   sendButton.addEventListener('click', sendMessage);
   composerInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key !== 'Enter' || event.isComposing) {
+      return;
+    }
+
+    if (event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!sendButton.disabled) {
       sendMessage();
     }
   });
@@ -1073,11 +1203,8 @@ if (newChatNavButton) {
   });
 }
 
-if (evidenceToggle) {
-  evidenceToggle.addEventListener('change', () => {
-    evidenceEnabled = evidenceToggle.checked;
-    syncEvidenceLayout();
-  });
+if (closeEvidenceButton) {
+  closeEvidenceButton.addEventListener('click', hideEvidencePanel);
 }
 
 if (saveProfileButton) {
@@ -1117,8 +1244,8 @@ if (modalCancelPasswordButton) {
 
 if (modalNextPhoneButton) {
   modalNextPhoneButton.addEventListener('click', () => {
-    if ((modalOldPhoneCodeInput?.value.trim() || '') !== '123456') {
-      showSettingsMessage(modalPhoneMessage, '原手机号验证码错误', 'error');
+    if (!/^\d{6}$/.test(modalOldPhoneCodeInput?.value.trim() || '')) {
+      showSettingsMessage(modalPhoneMessage, '请输入原手机号收到的6位验证码', 'error');
       return;
     }
     showSettingsMessage(modalPhoneMessage, '');
@@ -1151,11 +1278,17 @@ if (passwordModal) {
 }
 
 if (modalSendOldCodeButton) {
-  modalSendOldCodeButton.addEventListener('click', () => showDemoCodeMessage(modalPhoneMessage, '原手机号验证码'));
+  modalSendOldCodeButton.addEventListener('click', () => {
+    const phone = latestProfile?.phone || activeUser().phone;
+    sendSmsCodeForPhone(phone, 'login', '原手机号验证码');
+  });
 }
 
 if (modalSendNewCodeButton) {
-  modalSendNewCodeButton.addEventListener('click', () => showDemoCodeMessage(modalPhoneMessage, '新手机号验证码'));
+  modalSendNewCodeButton.addEventListener('click', () => {
+    const phone = modalNewPhoneInput?.value.trim() || '';
+    sendSmsCodeForPhone(phone, 'register', '新手机号验证码');
+  });
 }
 
 if (phoneModal) {

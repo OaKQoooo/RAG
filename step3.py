@@ -92,6 +92,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
 
     for l1 in data:
         source = l1.get("source", "Unknown")
+        source_path = l1.get("source_path") or ""
         chapter = l1.get("title", "Unknown")
         document_id = l1.get("document_id")
         uploaded_by = l1.get("uploaded_by")
@@ -145,6 +146,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
                             "uploaded_by": str(uploaded_by) if uploaded_by is not None else "",
                             "clause_key": f"{source}::{clause_id}"[:500],
                             "source_file": source[:500],
+                            "source_path": str(source_path)[:1000],
                             "clause_id": cid[:100],
                             "chapter": chapter[:500],
                             "chunk_index": idx,

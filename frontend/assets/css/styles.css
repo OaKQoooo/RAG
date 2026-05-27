@@ -730,8 +730,9 @@ select {
 
 .chat-workspace {
   grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  min-height: calc(100vh - 124px);
+  align-items: stretch;
+  height: calc(100vh - 124px);
+  min-height: 620px;
 }
 
 .chat-workspace.evidence-enabled {
@@ -800,6 +801,7 @@ select {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   padding: 8px 0 0;
   gap: 20px;
+  overflow: hidden;
 }
 
 .panel-toolbar {
@@ -826,10 +828,11 @@ select {
 
 .message-stream {
   display: grid;
+  align-content: start;
   gap: 14px;
   min-height: 0;
   overflow: auto;
-  padding: 8px 0 12px;
+  padding: 8px 0 16px;
 }
 
 .chat-empty-state {
@@ -854,6 +857,7 @@ select {
 }
 
 .message {
+  width: fit-content;
   max-width: 88%;
   padding: 16px 18px;
   border-radius: 22px;
@@ -873,6 +877,11 @@ select {
 .message p,
 .message-meta {
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.message strong {
+  font-weight: 800;
 }
 
 .user-message {
@@ -882,6 +891,7 @@ select {
 }
 
 .ai-message {
+  justify-self: start;
   background: #ffffff;
   border: 1px solid var(--line);
 }
@@ -890,6 +900,28 @@ select {
   margin-top: 10px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.message-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.message-evidence-btn {
+  border: 1px solid rgba(31, 93, 107, 0.2);
+  border-radius: 999px;
+  background: rgba(31, 93, 107, 0.08);
+  color: var(--primary);
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.message-evidence-btn:hover {
+  background: rgba(31, 93, 107, 0.14);
 }
 
 .suggestion-row {
@@ -914,7 +946,9 @@ select {
   display: grid;
   gap: 12px;
   margin-top: auto;
-  padding-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface, #fff);
 }
 
 .view-toggle {
@@ -939,6 +973,8 @@ select {
 
 .evidence-panel {
   display: none;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .chat-workspace.evidence-enabled .evidence-panel {
@@ -947,6 +983,17 @@ select {
 
 .chat-workspace.evidence-enabled .chat-panel {
   padding-right: 12px;
+}
+
+.evidence-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.evidence-close-btn {
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .composer textarea {
@@ -961,6 +1008,11 @@ select {
   gap: 14px;
 }
 
+.evidence-stack {
+  min-height: 0;
+  overflow: auto;
+}
+
 .evidence-card,
 .activity-row,
 .upload-row {
@@ -971,9 +1023,24 @@ select {
 
 .evidence-card {
   display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 10px;
   padding: 14px;
+}
+
+.evidence-page {
+  width: 100%;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.evidence-page.clickable {
+  cursor: pointer;
 }
 
 .page-preview {
@@ -989,11 +1056,18 @@ select {
 .evidence-image {
   display: block;
   width: 100%;
-  max-height: 360px;
+  max-height: 520px;
   object-fit: contain;
   background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+}
+
+.evidence-missing-image {
+  width: 100%;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: linear-gradient(180deg, #f8fbfa, #f1f5f3);
 }
 
 .empty-hint {
@@ -1024,14 +1098,44 @@ select {
 
 .page-highlight.narrow { width: 78%; }
 
-.evidence-info h4 {
-  margin: 0 0 8px;
-}
-
 .evidence-info p {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.evidence-source {
+  font-weight: 700;
+  color: var(--text) !important;
+}
+
+.evidence-snippet {
+  margin-top: 6px !important;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.evidence-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evidence-nav-btn {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.evidence-nav-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .upload-dropzone {

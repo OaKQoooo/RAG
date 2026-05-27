@@ -74,16 +74,6 @@
       <section class="view active" data-view-panel="chat">
         <div class="workspace chat-workspace" id="chat-workspace">
           <div class="chat-panel">
-            <div class="panel-toolbar">
-              <div class="header-actions toolbar-actions-right">
-                <label class="view-toggle" for="evidence-toggle">
-                  <span>启用原文定位</span>
-                  <input type="checkbox" id="evidence-toggle">
-                </label>
-                <button class="soft-btn" id="export-chat-records" type="button">导出记录</button>
-              </div>
-            </div>
-
             <div class="message-stream" id="message-stream">
               <div class="chat-empty-state" id="chat-empty-state">
                 <strong>开始一段新对话</strong>
@@ -97,6 +87,7 @@
               <textarea id="composer-input" placeholder="请输入工程问题，例如：施工缝处理有哪些强制要求？"></textarea>
               <div class="composer-actions">
                 <button class="primary-btn" id="send-message">提交问题</button>
+                <button class="soft-btn" id="export-chat-records" type="button">导出记录</button>
               </div>
             </div>
           </div>
@@ -106,7 +97,10 @@
               <div>
                 <h3>原文定位可视化</h3>
               </div>
-              <div class="pill">Top 3 命中</div>
+              <div class="evidence-panel-actions">
+                <div class="pill">原文命中</div>
+                <button class="soft-btn evidence-close-btn" id="close-evidence-panel" type="button">收起</button>
+              </div>
             </div>
 
             <div class="evidence-stack"></div>
@@ -282,7 +276,6 @@
             <button class="soft-btn" id="modal-send-old-code-btn" type="button">发送验证码</button>
           </div>
         </label>
-        <p class="settings-message" id="modal-phone-message"></p>
         <div class="modal-actions">
           <button class="soft-btn" id="modal-cancel-phone-btn" type="button">取消</button>
           <button class="primary-btn" id="modal-next-phone-btn" type="button">下一步</button>
@@ -306,6 +299,7 @@
           <button class="primary-btn" id="modal-finish-phone-btn" type="button">完成</button>
         </div>
       </div>
+      <p class="settings-message" id="modal-phone-message"></p>
     </div>
   </div>
 
