@@ -93,6 +93,41 @@ mvn spring-boot:run
 
 前端默认请求 `http://localhost:8080/api`，Spring 默认请求 Python RAG 服务 `http://127.0.0.1:8000`。
 
+## 数据库配置
+
+Spring 后端默认使用 MySQL，适合多台电脑连接同一个业务数据库。首次使用前先在 MySQL 中创建数据库：
+
+```sql
+CREATE DATABASE dam_rag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+默认连接配置如下：
+
+```text
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_DATABASE=dam_rag
+MYSQL_USERNAME=root
+MYSQL_PASSWORD=root
+```
+
+如果多台电脑要访问同一个数据库，把 `MYSQL_HOST` 改成 MySQL 所在电脑或服务器的 IP，例如：
+
+```powershell
+$env:MYSQL_HOST="192.168.1.20"
+$env:MYSQL_PORT="3306"
+$env:MYSQL_DATABASE="dam_rag"
+$env:MYSQL_USERNAME="root"
+$env:MYSQL_PASSWORD="你的MySQL密码"
+mvn spring-boot:run
+```
+
+如果只是本地临时测试 H2，可以切换 profile：
+
+```powershell
+mvn spring-boot:run -Dspring-boot.run.profiles=h2
+```
+
 ## 字段核实结果
 
 `table.md` 中原始字段能支持最基础流程，但不足以完整满足需求。已在 Spring 实体中补充：
