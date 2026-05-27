@@ -371,6 +371,20 @@ function hideEvidencePanel() {
   syncEvidenceLayout();
 }
 
+function createEvidenceAction(references = []) {
+  const actions = document.createElement('div');
+  actions.className = 'message-actions';
+
+  const evidenceButton = document.createElement('button');
+  evidenceButton.className = 'message-evidence-btn';
+  evidenceButton.type = 'button';
+  evidenceButton.textContent = '查看原文';
+  evidenceButton.addEventListener('click', () => showMessageEvidence(references));
+
+  actions.appendChild(evidenceButton);
+  return actions;
+}
+
 function appendMessage(role, content, meta = '', references = []) {
   if (!messageStream) return;
   const emptyState = document.getElementById('chat-empty-state');
@@ -381,23 +395,34 @@ function appendMessage(role, content, meta = '', references = []) {
   article.className = `message ${role === 'user' ? 'user-message' : 'ai-message'}`;
   article.innerHTML = `
     <span class="message-role">${role === 'user' ? '用户' : '助手'}</span>
-    <p>${renderMessageMarkdown(content)}</p>
+    <p class="message-content">${renderMessageMarkdown(content)}</p>
     ${meta ? `<div class="message-meta">${escapeHtml(meta)}</div>` : ''}
   `;
   if (role === 'assistant' && references.length) {
-    const actions = document.createElement('div');
-    actions.className = 'message-actions';
-
-    const evidenceButton = document.createElement('button');
-    evidenceButton.className = 'message-evidence-btn';
-    evidenceButton.type = 'button';
-    evidenceButton.textContent = '查看原文';
-    evidenceButton.addEventListener('click', () => showMessageEvidence(references));
-
-    actions.appendChild(evidenceButton);
-    article.appendChild(actions);
+    article.appendChild(createEvidenceAction(references));
   }
   messageStream.appendChild(article);
+  messageStream.scrollTop = messageStream.scrollHeight;
+  return article;
+}
+
+function updateMessage(article, content, meta = '', references = []) {
+  if (!article) return;
+  const contentElement = article.querySelector('.message-content');
+  if (contentElement) {
+    contentElement.innerHTML = renderMessageMarkdown(content);
+  }
+  article.querySelector('.message-meta')?.remove();
+  article.querySelector('.message-actions')?.remove();
+  if (meta) {
+    const metaElement = document.createElement('div');
+    metaElement.className = 'message-meta';
+    metaElement.textContent = meta;
+    article.appendChild(metaElement);
+  }
+  if (references.length) {
+    article.appendChild(createEvidenceAction(references));
+  }
   messageStream.scrollTop = messageStream.scrollHeight;
 }
 
@@ -1090,6 +1115,7 @@ async function sendMessage() {
   if (!text) return;
   const user = activeUser();
   appendMessage('user', text);
+  const pendingMessage = appendMessage('assistant', '正在生成内容，请稍候...', '生成中');
   composerInput.value = '';
   sendButton.disabled = true;
 
@@ -1110,7 +1136,7 @@ async function sendMessage() {
       chatSessionPill.textContent = `会话编号：${data.conversationId}`;
     }
     const clauses = (data.references || []).map((ref) => ref.clauseId || ref.clause_id).filter(Boolean).join(' / ');
-    appendMessage('assistant', data.answer, clauses ? `引用条款：${clauses}` : '', data.references || []);
+    updateMessage(pendingMessage, data.answer, clauses ? `引用条款：${clauses}` : '', data.references || []);
     latestReferences = data.references || [];
     if (evidenceEnabled) {
       renderEvidence(latestReferences);
@@ -1119,7 +1145,7 @@ async function sendMessage() {
     await loadConversations();
     await refreshDataManagementSummary();
   } catch (error) {
-    appendMessage('assistant', `请求后端失败：${error.message}`);
+    updateMessage(pendingMessage, `请求后端失败：${error.message}`);
   } finally {
     sendButton.disabled = false;
   }
