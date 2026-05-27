@@ -8,6 +8,7 @@ const adminUserSearch = document.getElementById('admin-user-search');
 const adminActivityList = document.getElementById('admin-activity-list');
 let adminDocumentRows = [];
 let adminUserRows = [];
+let adminDocumentPollTimer = null;
 
 const loginUser = currentUser();
 if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
@@ -84,6 +85,37 @@ function statusBadgeClass(status = '') {
   if (status.includes('完成') || status.includes('已完成') || status.includes('入库')) return 'success';
   if (status.includes('解析') || status.includes('处理中') || status.includes('正在')) return 'processing';
   return 'processing';
+}
+
+function statusBadgeClass(status = '') {
+  const value = String(status || '');
+  if (value.includes('失败') || value.includes('澶辫触')) return 'danger';
+  if (value.includes('完成') || value.includes('已完成') || value.includes('入库成功')
+      || value.includes('瀹屾垚') || value.includes('宸插畬鎴?') || value.includes('鍏ュ簱')) {
+    return 'success';
+  }
+  return 'processing';
+}
+
+function isIngestingStatus(status = '') {
+  const value = String(status || '');
+  return ['等待入库', '正在入库', '正在解析', '处理中'].some((item) => value.includes(item))
+    || ['寰呭', '姝ｅ湪', '瑙ｆ瀽', '澶勭悊涓'].some((item) => value.includes(item));
+}
+
+function syncDocumentPolling(documents = []) {
+  const hasProcessingDocument = documents.some((doc) => isIngestingStatus(doc.processStatus));
+  if (hasProcessingDocument && !adminDocumentPollTimer) {
+    adminDocumentPollTimer = window.setInterval(async () => {
+      await loadDocuments();
+      await loadOverview();
+      await loadActivities();
+    }, 3000);
+  }
+  if (!hasProcessingDocument && adminDocumentPollTimer) {
+    window.clearInterval(adminDocumentPollTimer);
+    adminDocumentPollTimer = null;
+  }
 }
 
 function createDeleteButton(onClick) {
@@ -240,6 +272,7 @@ async function loadDocuments() {
     adminDocumentRows = rows;
     renderAdminUploadList(rows);
     applyDocumentSearch();
+    syncDocumentPolling(rows);
   } catch (error) {
     console.warn('加载文档失败', error);
     adminDocumentsBody.innerHTML = '<tr><td colspan="8" class="empty-table-cell">文档加载失败</td></tr>';

@@ -59,6 +59,7 @@ let activeEvidenceIndex = 0;
 let latestProfile = null;
 let recentConversations = [];
 const selectedConversationIds = new Set();
+let userDocumentPollTimer = null;
 
 if (window.DAM_RAG_LOGIN_REQUIRED || !currentUser()) {
   window.location.href = './index.html';
@@ -1021,6 +1022,33 @@ function statusBadgeClass(status = '') {
   return 'processing';
 }
 
+function statusBadgeClass(status = '') {
+  const value = String(status || '');
+  if (value.includes('失败') || value.includes('澶辫触')) return 'danger';
+  if (value.includes('完成') || value.includes('已完成') || value.includes('入库成功')
+      || value.includes('瀹屾垚') || value.includes('鍏ュ簱')) {
+    return 'success';
+  }
+  return 'processing';
+}
+
+function isIngestingStatus(status = '') {
+  const value = String(status || '');
+  return ['等待入库', '正在入库', '正在解析', '处理中'].some((item) => value.includes(item))
+    || ['寰呭', '姝ｅ湪', '瑙ｆ瀽', '澶勭悊涓'].some((item) => value.includes(item));
+}
+
+function syncDocumentPolling(documents = []) {
+  const hasProcessingDocument = documents.some((doc) => isIngestingStatus(doc.processStatus));
+  if (hasProcessingDocument && !userDocumentPollTimer) {
+    userDocumentPollTimer = window.setInterval(loadMyDocuments, 3000);
+  }
+  if (!hasProcessingDocument && userDocumentPollTimer) {
+    window.clearInterval(userDocumentPollTimer);
+    userDocumentPollTimer = null;
+  }
+}
+
 function createDeleteButton(onClick) {
   const button = document.createElement('button');
   button.className = 'danger-btn action-btn';
@@ -1099,6 +1127,7 @@ async function loadMyDocuments() {
     const documents = await requestJson('/documents/my');
     renderUserUploadList(documents);
     renderUserDocumentsTable(documents);
+    syncDocumentPolling(documents);
   } catch (error) {
     console.warn('加载个人文档失败', error);
     if (userUploadList) {

@@ -5,12 +5,15 @@ import com.example.damrag.model.User;
 import com.example.damrag.repository.KbDocumentRepository;
 import com.example.damrag.service.AuthService;
 import com.example.damrag.service.RagClient;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,6 +34,7 @@ public class DocumentController {
     private final RagClient ragClient;
     private final AuthService authService;
     private final Path uploadDir;
+    private final ExecutorService ingestExecutor = Executors.newSingleThreadExecutor();
 
     public DocumentController(
             KbDocumentRepository documentRepository,
@@ -97,7 +101,7 @@ public class DocumentController {
             document.setUploadedBy(userId);
             document.setUploadRole(role);
             document.setVisibility(visibility);
-            document.setProcessStatus("正在解析");
+            document.setProcessStatus("等待入库");
             document = documentRepository.save(document);
             allDocuments.add(document);
 
@@ -112,26 +116,7 @@ public class DocumentController {
         }
 
         if (!savedDocuments.isEmpty()) {
-            try {
-                List<KbDocument> activeDocuments = documentRepository.findAll()
-                        .stream()
-                        .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
-                        .toList();
-
-                ragClient.rebuild(activeDocuments, uploadDir);
-
-                savedDocuments.forEach(document -> {
-                    document.setProcessStatus("已完成");
-                    document.setErrorMessage(null);
-                    documentRepository.save(document);
-                });
-            } catch (Exception e) {
-                savedDocuments.forEach(document -> {
-                    document.setProcessStatus("处理失败");
-                    document.setErrorMessage(e.getMessage());
-                    documentRepository.save(document);
-                });
-            }
+            rebuildAsync(savedDocuments);
         }
 
         return allDocuments;
@@ -155,13 +140,47 @@ public class DocumentController {
             }
         }
         documentRepository.delete(document);
+        rebuildAsync(List.of());
+    }
 
-        List<KbDocument> activeDocuments = documentRepository.findAll()
+    private void rebuildAsync(List<KbDocument> affectedDocuments) {
+        ingestExecutor.submit(() -> {
+            List<KbDocument> documentsToUpdate = reloadDocuments(affectedDocuments);
+            try {
+                updateDocumentsStatus(documentsToUpdate, "正在入库", null);
+                ragClient.rebuild(activeDocuments(), uploadDir);
+                updateDocumentsStatus(documentsToUpdate, "已完成", null);
+            } catch (Exception e) {
+                updateDocumentsStatus(documentsToUpdate, "处理失败", e.getMessage());
+            }
+        });
+    }
+
+    private List<KbDocument> reloadDocuments(List<KbDocument> documents) {
+        return documents.stream()
+                .map(KbDocument::getId)
+                .flatMap(id -> documentRepository.findById(id).stream())
+                .toList();
+    }
+
+    private List<KbDocument> activeDocuments() {
+        return documentRepository.findAll()
                 .stream()
                 .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
                 .toList();
+    }
 
-        ragClient.rebuild(activeDocuments, uploadDir);
+    private void updateDocumentsStatus(List<KbDocument> documents, String status, String errorMessage) {
+        documents.forEach(document -> {
+            document.setProcessStatus(status);
+            document.setErrorMessage(errorMessage);
+            documentRepository.save(document);
+        });
+    }
+
+    @PreDestroy
+    public void shutdownIngestExecutor() {
+        ingestExecutor.shutdown();
     }
 
     private String storedName(Long userId, String role, String originalName) {
