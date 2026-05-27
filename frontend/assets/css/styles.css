@@ -1270,6 +1270,183 @@ select {
   min-width: 980px;
 }
 
+.rag-debug-panel {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: 24px;
+  display: grid;
+  gap: 18px;
+  align-self: start;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78));
+  border-radius: 24px;
+}
+
+.rag-debug-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 178px;
+  gap: 16px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.rag-debug-form textarea {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 16px;
+  color: var(--text);
+  line-height: 1.7;
+  box-shadow: inset 0 0 0 1px var(--line);
+  outline: none;
+}
+
+.rag-debug-form textarea:focus,
+.rag-debug-actions input:focus {
+  box-shadow: inset 0 0 0 2px rgba(31, 93, 107, 0.28);
+}
+
+.rag-debug-actions {
+  display: grid;
+  gap: 10px;
+  align-content: end;
+}
+
+.rag-debug-actions label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rag-debug-actions input {
+  width: 100%;
+  min-height: 46px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 0 12px;
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
+  outline: none;
+}
+
+.rag-debug-actions .primary-btn {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 14px;
+}
+
+.rag-debug-status {
+  min-height: 22px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rag-debug-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.rag-debug-results > .empty-hint {
+  grid-column: 1 / -1;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.rag-debug-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 28px rgba(24, 54, 63, 0.08);
+}
+
+.rag-debug-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.rag-debug-card-head strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  max-width: 100%;
+}
+
+.rag-debug-card-head span {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rag-debug-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.rag-debug-meta span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rag-debug-card p {
+  margin: 0;
+  padding: 12px 0 2px;
+  color: var(--text);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--line);
+}
+
+.rag-debug-card summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 700;
+  width: fit-content;
+}
+
+.rag-debug-card pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(24, 54, 63, 0.05);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+}
+
 .admin-user-table {
   min-width: 760px;
 }
@@ -1726,6 +1903,14 @@ select {
     width: 100%;
     min-width: 0;
   }
+
+  .rag-debug-form {
+    grid-template-columns: 1fr;
+  }
+
+  .rag-debug-actions {
+    min-width: 0;
+  }
 }
 
 :root[data-theme="dark"] body {
@@ -1742,6 +1927,7 @@ select {
 :root[data-theme="dark"] .evidence-card,
 :root[data-theme="dark"] .activity-row,
 :root[data-theme="dark"] .upload-row,
+:root[data-theme="dark"] .rag-debug-card,
 :root[data-theme="dark"] .toggle-row,
 :root[data-theme="dark"] .data-stat,
 :root[data-theme="dark"] .data-management-list > div,
@@ -1756,6 +1942,8 @@ select {
 :root[data-theme="dark"] .auth-form select,
 :root[data-theme="dark"] .form-grid input,
 :root[data-theme="dark"] .table-search,
+:root[data-theme="dark"] .rag-debug-form textarea,
+:root[data-theme="dark"] .rag-debug-actions input,
 :root[data-theme="dark"] .composer textarea,
 :root[data-theme="dark"] .account-field input,
 :root[data-theme="dark"] .modal-field input,

@@ -142,6 +142,32 @@
               <tbody id="admin-documents-body"></tbody>
             </table>
           </div>
+
+          <div class="glass-panel rag-debug-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>RAG 调试面板</h3>
+                <p>输入测试问题，查看向量库实际召回的条文片段。</p>
+              </div>
+              <div class="pill">Debug</div>
+            </div>
+
+            <div class="rag-debug-form">
+              <textarea id="rag-debug-question" placeholder="例如：水库大坝安全监测有哪些要求？"></textarea>
+              <div class="rag-debug-actions">
+                <label>
+                  <span>返回数量</span>
+                  <input id="rag-debug-topk" type="number" min="1" max="20" value="5">
+                </label>
+                <button id="rag-debug-run" class="primary-btn" type="button">调试检索</button>
+              </div>
+            </div>
+
+            <div class="rag-debug-status" id="rag-debug-status"></div>
+            <div class="rag-debug-results" id="rag-debug-results">
+              <div class="empty-hint">暂无调试结果</div>
+            </div>
+          </div>
         </div>
       </section>
 

@@ -6,9 +6,15 @@ const adminDocumentSearch = document.getElementById('admin-document-search');
 const adminUsersBody = document.getElementById('admin-users-body');
 const adminUserSearch = document.getElementById('admin-user-search');
 const adminActivityList = document.getElementById('admin-activity-list');
+const ragDebugQuestion = document.getElementById('rag-debug-question');
+const ragDebugTopK = document.getElementById('rag-debug-topk');
+const ragDebugRun = document.getElementById('rag-debug-run');
+const ragDebugStatus = document.getElementById('rag-debug-status');
+const ragDebugResults = document.getElementById('rag-debug-results');
 let adminDocumentRows = [];
 let adminUserRows = [];
 let adminDocumentPollTimer = null;
+const RAG_SERVICE_BASE = window.RAG_SERVICE_BASE || 'http://127.0.0.1:8000';
 
 const loginUser = currentUser();
 if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
@@ -330,6 +336,89 @@ async function loadActivities() {
   }
 }
 
+function debugMetaValue(metadata = {}, key) {
+  const value = metadata[key];
+  return value === undefined || value === null || value === '' ? '-' : String(value);
+}
+
+function displayDebugSourceName(value = '') {
+  return String(value || '-')
+    .replace(/\.pdf$/i, '')
+    .replace(/^(user|admin)_\d+_\d{14}_/, '')
+    .replace(/\+/g, ' ')
+    .replace(/^DLT\s+/i, 'DL/T ');
+}
+
+function renderRagDebugResults(results = []) {
+  if (!ragDebugResults) return;
+  if (!results.length) {
+    ragDebugResults.innerHTML = '<div class="empty-hint">没有召回结果</div>';
+    return;
+  }
+
+  ragDebugResults.innerHTML = '';
+  results.forEach((item) => {
+    const metadata = item.metadata || {};
+    const card = document.createElement('article');
+    card.className = 'rag-debug-card';
+    card.innerHTML = `
+      <div class="rag-debug-card-head">
+        <strong>#${escapeHtml(item.rank || '-')} ${escapeHtml(displayDebugSourceName(debugMetaValue(metadata, 'source_file')))}</strong>
+        <span>${escapeHtml(debugMetaValue(metadata, 'clause_id'))}</span>
+      </div>
+      <div class="rag-debug-meta">
+        <span>page: ${escapeHtml(debugMetaValue(metadata, 'page'))}</span>
+        <span>document_id: ${escapeHtml(debugMetaValue(metadata, 'document_id'))}</span>
+        <span>chunk: ${escapeHtml(debugMetaValue(metadata, 'chunk_index'))}</span>
+      </div>
+      <p>${escapeHtml(item.content_preview || '')}</p>
+      <details>
+        <summary>查看 metadata</summary>
+        <pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>
+      </details>
+    `;
+    ragDebugResults.appendChild(card);
+  });
+}
+
+async function runRagDebugSearch() {
+  if (!ragDebugQuestion || !ragDebugRun) return;
+  const question = ragDebugQuestion.value.trim();
+  const topK = Math.min(Math.max(Number(ragDebugTopK?.value || 5), 1), 20);
+
+  if (!question) {
+    if (ragDebugStatus) ragDebugStatus.textContent = '请输入测试问题';
+    return;
+  }
+
+  ragDebugRun.disabled = true;
+  if (ragDebugStatus) ragDebugStatus.textContent = '正在检索...';
+  if (ragDebugResults) {
+    ragDebugResults.innerHTML = '<div class="empty-hint">正在召回向量片段...</div>';
+  }
+
+  try {
+    const response = await fetch(`${RAG_SERVICE_BASE}/api/rag/debug/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, topK })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    renderRagDebugResults(data.results || []);
+    if (ragDebugStatus) {
+      ragDebugStatus.textContent = `完成：召回 ${(data.results || []).length} 条`;
+    }
+  } catch (error) {
+    if (ragDebugStatus) ragDebugStatus.textContent = `调试失败：${error.message}`;
+    if (ragDebugResults) {
+      ragDebugResults.innerHTML = '<div class="empty-hint">调试接口调用失败，请确认 RAG 服务已启动。</div>';
+    }
+  } finally {
+    ragDebugRun.disabled = false;
+  }
+}
+
 function renderAdminUserTable(rows = []) {
   if (!adminUsersBody) return;
 
@@ -444,6 +533,19 @@ if (adminDocumentSearch) {
 
 if (adminUserSearch) {
   adminUserSearch.addEventListener('input', applyUserSearch);
+}
+
+if (ragDebugRun) {
+  ragDebugRun.addEventListener('click', runRagDebugSearch);
+}
+
+if (ragDebugQuestion) {
+  ragDebugQuestion.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      runRagDebugSearch();
+    }
+  });
 }
 
 loadOverview();
