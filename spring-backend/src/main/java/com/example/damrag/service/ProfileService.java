@@ -22,26 +22,28 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class ProfileService {
     private static final String PHONE_PATTERN = "^1[3-9]\\d{9}$";
-    private static final String DEMO_SMS_CODE = "123456";
 
     private final UserRepository userRepository;
     private final QaConversationRepository conversationRepository;
     private final QaMessageRepository messageRepository;
     private final MessageReferenceRepository referenceRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SmsCodeService smsCodeService;
 
     public ProfileService(
             UserRepository userRepository,
             QaConversationRepository conversationRepository,
             QaMessageRepository messageRepository,
             MessageReferenceRepository referenceRepository,
-            PasswordEncoder passwordEncoder
+            PasswordEncoder passwordEncoder,
+            SmsCodeService smsCodeService
     ) {
         this.userRepository = userRepository;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.referenceRepository = referenceRepository;
         this.passwordEncoder = passwordEncoder;
+        this.smsCodeService = smsCodeService;
     }
 
     public UserProfile getProfile(Long userId) {
@@ -64,11 +66,11 @@ public class ProfileService {
     }
 
     public UserProfile changePhone(Long userId, ChangePhoneRequest request) {
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "手机号换绑参数不能为空");
+        }
         User user = findUser(userId);
         String newPhone = normalizePhone(request.newPhone());
-        if (!isValidSmsCode(request.oldPhoneSmsCode())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "原手机号验证码错误或失效");
-        }
         if (!isValidPhone(newPhone)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "新手机号格式不正确");
         }
@@ -78,9 +80,10 @@ public class ProfileService {
         if (userRepository.existsByPhone(newPhone)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "新手机号已被注册");
         }
-        if (!isValidSmsCode(request.newPhoneSmsCode())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "新手机号验证码错误或失效");
-        }
+
+        verifySmsCode(user.getPhone(), "login", request.oldPhoneSmsCode(), "原手机号验证码错误或失效");
+        verifySmsCode(newPhone, "register", request.newPhoneSmsCode(), "新手机号验证码错误或失效");
+
         user.setPhone(newPhone);
         return toProfile(userRepository.save(user));
     }
@@ -171,8 +174,12 @@ public class ProfileService {
         return phone != null && phone.matches(PHONE_PATTERN);
     }
 
-    private boolean isValidSmsCode(String smsCode) {
-        return DEMO_SMS_CODE.equals(smsCode);
+    private void verifySmsCode(String phone, String scene, String smsCode, String message) {
+        try {
+            smsCodeService.verify(phone, scene, smsCode);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, message);
+        }
     }
 
     private String displayName(String username, String phone) {

@@ -720,8 +720,9 @@ select {
 
 .chat-workspace {
   grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  min-height: calc(100vh - 124px);
+  align-items: stretch;
+  height: calc(100vh - 124px);
+  min-height: 620px;
 }
 
 .chat-workspace.evidence-enabled {
@@ -790,6 +791,7 @@ select {
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   padding: 8px 0 0;
   gap: 20px;
+  overflow: hidden;
 }
 
 .panel-toolbar {
@@ -816,10 +818,11 @@ select {
 
 .message-stream {
   display: grid;
+  align-content: start;
   gap: 14px;
   min-height: 0;
   overflow: auto;
-  padding: 8px 0 12px;
+  padding: 8px 0 16px;
 }
 
 .chat-empty-state {
@@ -844,6 +847,7 @@ select {
 }
 
 .message {
+  width: fit-content;
   max-width: 88%;
   padding: 16px 18px;
   border-radius: 22px;
@@ -863,6 +867,11 @@ select {
 .message p,
 .message-meta {
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.message strong {
+  font-weight: 800;
 }
 
 .user-message {
@@ -872,6 +881,7 @@ select {
 }
 
 .ai-message {
+  justify-self: start;
   background: #ffffff;
   border: 1px solid var(--line);
 }
@@ -926,7 +936,9 @@ select {
   display: grid;
   gap: 12px;
   margin-top: auto;
-  padding-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface, #fff);
 }
 
 .view-toggle {
@@ -951,6 +963,8 @@ select {
 
 .evidence-panel {
   display: none;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .chat-workspace.evidence-enabled .evidence-panel {
@@ -984,6 +998,11 @@ select {
   gap: 14px;
 }
 
+.evidence-stack {
+  min-height: 0;
+  overflow: auto;
+}
+
 .evidence-card,
 .activity-row,
 .upload-row {
@@ -1008,6 +1027,10 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
+}
+
+.evidence-page.clickable {
+  cursor: pointer;
 }
 
 .page-preview {
@@ -1082,6 +1105,27 @@ select {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.evidence-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evidence-nav-btn {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.evidence-nav-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .upload-dropzone {
