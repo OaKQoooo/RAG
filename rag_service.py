@@ -501,6 +501,16 @@ def root():
     }
 
 
+@app.get("/api/rag/quality")
+def quality_report():
+    try:
+        return build_quality_report()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.post("/api/rag/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     try:

@@ -11,6 +11,11 @@ const ragDebugTopK = document.getElementById('rag-debug-topk');
 const ragDebugRun = document.getElementById('rag-debug-run');
 const ragDebugStatus = document.getElementById('rag-debug-status');
 const ragDebugResults = document.getElementById('rag-debug-results');
+const ragQualityRefresh = document.getElementById('rag-quality-refresh');
+const ragQualityMetrics = document.getElementById('rag-quality-metrics');
+const ragQualityDuplicates = document.getElementById('rag-quality-duplicates');
+const ragQualityLongTexts = document.getElementById('rag-quality-long-texts');
+const ragQualityStatus = document.getElementById('rag-quality-status');
 let adminDocumentRows = [];
 let adminUserRows = [];
 let adminDocumentPollTimer = null;
@@ -116,6 +121,7 @@ function syncDocumentPolling(documents = []) {
       await loadDocuments();
       await loadOverview();
       await loadActivities();
+      await loadQualityReport();
     }, 3000);
   }
   if (!hasProcessingDocument && adminDocumentPollTimer) {
@@ -297,6 +303,75 @@ async function loadUsers() {
   } catch (error) {
     console.warn('加载用户失败', error);
     adminUsersBody.innerHTML = '<tr><td colspan="6" class="empty-table-cell">用户加载失败</td></tr>';
+  }
+}
+
+function qualityMetric(label, value, tone = '') {
+  return `
+    <div class="quality-metric ${tone}">
+      <strong>${escapeHtml(value)}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function renderQualityChipList(element, items = []) {
+  if (!element) return;
+  if (!items.length) {
+    element.innerHTML = '<span class="quality-empty">无</span>';
+    return;
+  }
+  element.innerHTML = items
+    .map((item) => `<span>${escapeHtml(item)}</span>`)
+    .join('');
+}
+
+function renderQualityLongTexts(items = []) {
+  if (!ragQualityLongTexts) return;
+  if (!items.length) {
+    ragQualityLongTexts.innerHTML = '<span class="quality-empty">无</span>';
+    return;
+  }
+  ragQualityLongTexts.innerHTML = items.map((item) => `
+    <article>
+      <strong>${escapeHtml(item.clause_id || '-')} · ${escapeHtml(item.length || '-')} 字</strong>
+      <span>${escapeHtml(item.chapter || '-')}</span>
+      <p>${escapeHtml(item.preview || '')}</p>
+    </article>
+  `).join('');
+}
+
+function renderQualityReport(report = {}) {
+  if (ragQualityMetrics) {
+    ragQualityMetrics.innerHTML = [
+      qualityMetric('条文节点', report.total_clauses ?? '-'),
+      qualityMetric('重复条文号', report.duplicate_clause_id_count ?? '-', report.duplicate_clause_id_count ? 'warn' : ''),
+      qualityMetric('空内容', report.empty_content_count ?? '-', report.empty_content_count ? 'danger' : ''),
+      qualityMetric('缺失 page', report.missing_page_count ?? '-', report.missing_page_count ? 'danger' : ''),
+      qualityMetric('缺失 bbox', report.missing_bbox_count ?? '-', report.missing_bbox_count ? 'danger' : ''),
+      qualityMetric('长文本', report.long_text_count ?? '-', report.long_text_count ? 'warn' : ''),
+    ].join('');
+  }
+  renderQualityChipList(ragQualityDuplicates, report.sample_duplicate_clause_ids || []);
+  renderQualityLongTexts(report.sample_long_texts || []);
+}
+
+async function loadQualityReport() {
+  if (!ragQualityMetrics) return;
+  if (ragQualityStatus) ragQualityStatus.textContent = '正在加载质量报告...';
+  try {
+    const response = await fetch(`${RAG_SERVICE_BASE}/api/rag/quality`);
+    if (!response.ok) throw new Error(await response.text());
+    const report = await response.json();
+    renderQualityReport(report);
+    if (ragQualityStatus) {
+      ragQualityStatus.textContent = `报告已更新：${report.json_path || ''}`;
+    }
+  } catch (error) {
+    if (ragQualityStatus) ragQualityStatus.textContent = `质量报告加载失败：${error.message}`;
+    if (ragQualityMetrics) {
+      ragQualityMetrics.innerHTML = '<div class="empty-hint">请确认 RAG 服务已启动并完成至少一次入库。</div>';
+    }
   }
 }
 
@@ -548,7 +623,12 @@ if (ragDebugQuestion) {
   });
 }
 
+if (ragQualityRefresh) {
+  ragQualityRefresh.addEventListener('click', loadQualityReport);
+}
+
 loadOverview();
 loadActivities();
 loadDocuments();
 loadUsers();
+loadQualityReport();

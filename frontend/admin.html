@@ -143,6 +143,37 @@
             </table>
           </div>
 
+          <div class="glass-panel rag-quality-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>入库质量报告</h3>
+                <p>查看结构化条文、定位信息和长文本风险。</p>
+              </div>
+              <button id="rag-quality-refresh" class="soft-btn" type="button">刷新报告</button>
+            </div>
+
+            <div class="quality-metrics" id="rag-quality-metrics">
+              <div class="empty-hint">暂无质量报告</div>
+            </div>
+
+            <div class="quality-detail-grid">
+              <div class="quality-detail-card">
+                <h4>重复条文号</h4>
+                <div id="rag-quality-duplicates" class="quality-chip-list">
+                  <span>-</span>
+                </div>
+              </div>
+              <div class="quality-detail-card">
+                <h4>长文本条文</h4>
+                <div id="rag-quality-long-texts" class="quality-long-list">
+                  <span>-</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="rag-debug-status" id="rag-quality-status"></div>
+          </div>
+
           <div class="glass-panel rag-debug-panel">
             <div class="panel-toolbar">
               <div>
