@@ -882,6 +882,28 @@ select {
   color: var(--muted);
 }
 
+.message-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.message-evidence-btn {
+  border: 1px solid rgba(31, 93, 107, 0.2);
+  border-radius: 999px;
+  background: rgba(31, 93, 107, 0.08);
+  color: var(--primary);
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.message-evidence-btn:hover {
+  background: rgba(31, 93, 107, 0.14);
+}
+
 .suggestion-row {
   display: flex;
   flex-wrap: wrap;
@@ -939,6 +961,17 @@ select {
   padding-right: 12px;
 }
 
+.evidence-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.evidence-close-btn {
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
 .composer textarea {
   min-height: 110px;
   resize: vertical;
@@ -961,9 +994,20 @@ select {
 
 .evidence-card {
   display: grid;
-  grid-template-columns: 140px 1fr;
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 10px;
   padding: 14px;
+}
+
+.evidence-page {
+  width: 100%;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
 }
 
 .page-preview {
@@ -979,11 +1023,18 @@ select {
 .evidence-image {
   display: block;
   width: 100%;
-  max-height: 360px;
+  max-height: 520px;
   object-fit: contain;
   background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+}
+
+.evidence-missing-image {
+  width: 100%;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: linear-gradient(180deg, #f8fbfa, #f1f5f3);
 }
 
 .empty-hint {
@@ -1014,14 +1065,23 @@ select {
 
 .page-highlight.narrow { width: 78%; }
 
-.evidence-info h4 {
-  margin: 0 0 8px;
-}
-
 .evidence-info p {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.evidence-source {
+  font-weight: 700;
+  color: var(--text) !important;
+}
+
+.evidence-snippet {
+  margin-top: 6px !important;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .upload-dropzone {

@@ -201,27 +201,41 @@ def _json_bbox(value) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _resolve_pdf_path(source_name: str) -> Optional[Path]:
+def _resolve_pdf_path(source_name: str, source_path: Optional[str] = None) -> Optional[Path]:
+    if source_path:
+        candidate = Path(source_path).expanduser()
+        if candidate.exists():
+            return candidate
+
     disk_name = source_name.replace("/", "").replace(" ", "+") + ".pdf"
-    pdf_path = PDF_DIR / disk_name
-    if pdf_path.exists():
-        return pdf_path
+    search_dirs = [PDF_DIR, Path(__file__).resolve().parent / "spring-backend" / "uploads"]
+    for base_dir in search_dirs:
+        pdf_path = base_dir / disk_name
+        if pdf_path.exists():
+            return pdf_path
 
     core_name = source_name.split(" ")[0].replace("/", "")
-    if PDF_DIR.exists():
-        for fname in os.listdir(PDF_DIR):
+    for base_dir in search_dirs:
+        if not base_dir.exists():
+            continue
+        for fname in os.listdir(base_dir):
             compact = fname.replace("+", "").replace(" ", "")
             if core_name and core_name in compact:
-                return PDF_DIR / fname
+                return base_dir / fname
     return None
 
 
-def build_pdf_snapshot(source_name: str, page_num, bbox_json: str) -> Optional[str]:
-    pdf_path = _resolve_pdf_path(source_name)
+def build_pdf_snapshot(
+    source_name: str,
+    page_num,
+    bbox_json: str,
+    source_path: Optional[str] = None,
+) -> Optional[str]:
+    pdf_path = _resolve_pdf_path(source_name, source_path)
     if not pdf_path:
         return None
 
-    key = hashlib.sha1(f"{source_name}|{page_num}|{bbox_json}".encode("utf-8")).hexdigest()
+    key = hashlib.sha1(f"{pdf_path}|{page_num}|{bbox_json}".encode("utf-8")).hexdigest()
     img_path = SNAPSHOT_DIR / f"{key}.png"
     if img_path.exists():
         return f"/snapshots/{img_path.name}"
@@ -317,7 +331,12 @@ class RagEngine:
                         chapter=str(m.get("chapter", "")),
                         page=page,
                         bbox_json=bbox_json,
-                        image_url=build_pdf_snapshot(source_file, page, bbox_json) if enable_evidence else None,
+                        image_url=build_pdf_snapshot(
+                            source_file,
+                            page,
+                            bbox_json,
+                            str(m.get("source_path") or ""),
+                        ) if enable_evidence else None,
                         content_preview=doc.page_content[:240],
                         document_id=str(m.get("document_id")) if m.get("document_id") is not None else None,
                     )

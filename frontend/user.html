@@ -76,10 +76,6 @@
           <div class="chat-panel">
             <div class="panel-toolbar">
               <div class="header-actions toolbar-actions-right">
-                <label class="view-toggle" for="evidence-toggle">
-                  <span>启用原文定位</span>
-                  <input type="checkbox" id="evidence-toggle">
-                </label>
                 <button class="soft-btn" id="export-chat-records" type="button">导出记录</button>
               </div>
             </div>
@@ -106,7 +102,10 @@
               <div>
                 <h3>原文定位可视化</h3>
               </div>
-              <div class="pill">Top 3 命中</div>
+              <div class="evidence-panel-actions">
+                <div class="pill">Top 3 命中</div>
+                <button class="soft-btn evidence-close-btn" id="close-evidence-panel" type="button">收起</button>
+              </div>
             </div>
 
             <div class="evidence-stack"></div>

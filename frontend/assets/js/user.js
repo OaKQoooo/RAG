@@ -4,7 +4,7 @@ const composerInput = document.getElementById('composer-input');
 const messageStream = document.getElementById('message-stream');
 const evidenceStack = document.querySelector('.evidence-stack');
 const suggestionRow = document.getElementById('suggestion-row') || document.querySelector('.suggestion-row');
-const evidenceToggle = document.getElementById('evidence-toggle');
+const closeEvidenceButton = document.getElementById('close-evidence-panel');
 const exportChatButton = document.getElementById('export-chat-records');
 const exportAllRecordsButton = document.getElementById('export-all-records-btn');
 const chatWorkspace = document.getElementById('chat-workspace');
@@ -330,7 +330,19 @@ async function deleteSelectedConversations() {
   }
 }
 
-function appendMessage(role, content, meta = '') {
+function showMessageEvidence(references = []) {
+  latestReferences = references;
+  evidenceEnabled = true;
+  syncEvidenceLayout();
+  evidenceStack?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function hideEvidencePanel() {
+  evidenceEnabled = false;
+  syncEvidenceLayout();
+}
+
+function appendMessage(role, content, meta = '', references = []) {
   if (!messageStream) return;
   const emptyState = document.getElementById('chat-empty-state');
   if (emptyState) {
@@ -343,25 +355,54 @@ function appendMessage(role, content, meta = '') {
     <p>${escapeHtml(content)}</p>
     ${meta ? `<div class="message-meta">${escapeHtml(meta)}</div>` : ''}
   `;
+  if (role === 'assistant' && references.length) {
+    const actions = document.createElement('div');
+    actions.className = 'message-actions';
+
+    const evidenceButton = document.createElement('button');
+    evidenceButton.className = 'message-evidence-btn';
+    evidenceButton.type = 'button';
+    evidenceButton.textContent = '查看原文';
+    evidenceButton.addEventListener('click', () => showMessageEvidence(references));
+
+    actions.appendChild(evidenceButton);
+    article.appendChild(actions);
+  }
   messageStream.appendChild(article);
   messageStream.scrollTop = messageStream.scrollHeight;
+}
+
+function displaySourceName(value = '') {
+  return String(value || '未知规范')
+    .replace(/\.pdf$/i, '')
+    .replace(/^(user|admin)_\d+_\d{14}_/, '')
+    .replace(/\+/g, ' ')
+    .replace(/^DLT\s+/i, 'DL/T ');
+}
+
+function referenceImageUrl(ref = {}) {
+  return ref.imageUrl || ref.image_url || '';
 }
 
 function renderEvidence(references = []) {
   if (!evidenceStack) return;
   latestReferences = references;
   evidenceStack.innerHTML = references.length ? '' : '<p class="empty-hint">暂无原文定位结果</p>';
-  references.forEach((ref) => {
+  references.forEach((ref, index) => {
     const card = document.createElement('article');
     card.className = 'evidence-card';
-    const preview = ref.imageUrl
-      ? `<img class="evidence-image" src="${escapeHtml(ref.imageUrl)}" alt="原文截图">`
-      : `<div class="evidence-preview page-preview"><div class="page-line long"></div><div class="page-highlight"></div><div class="page-line medium"></div></div>`;
+    const imageUrl = referenceImageUrl(ref);
+    const sourceName = displaySourceName(ref.sourceFile || ref.source_file || ref.standardName);
+    const clauseId = ref.clauseId || ref.clause_id || '';
+    const contentPreview = ref.contentPreview || ref.content_preview || '';
+    const preview = imageUrl
+      ? `<img class="evidence-image" src="${escapeHtml(imageUrl)}" alt="原文${index + 1}截图">`
+      : `<div class="evidence-missing-image">原文页面截图暂不可用</div>`;
     card.innerHTML = `
-      <div class="evidence-preview">${preview}</div>
+      <div class="evidence-page">${preview}</div>
       <div class="evidence-info">
-        <h4>《${escapeHtml(ref.sourceFile || ref.source_file)}》</h4>
-        <p>页码：${escapeHtml(ref.page)} ｜ 条款：${escapeHtml(ref.clauseId || ref.clause_id)} ｜ bbox：${escapeHtml(ref.bboxJson || ref.bbox_json || '[]')}</p>
+        <p class="evidence-source">原文${index + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(ref.page)} ｜ 条款：${escapeHtml(clauseId)}</p>
+        ${contentPreview ? `<p class="evidence-snippet">${escapeHtml(contentPreview)}</p>` : ''}
       </div>
     `;
     evidenceStack.appendChild(card);
@@ -753,7 +794,8 @@ async function loadConversationMessages(conversationId) {
       appendMessage(
         message.role === 'user' ? 'user' : 'assistant',
         message.content || '',
-        clauses ? `引用条款：${clauses}` : ''
+        clauses ? `引用条款：${clauses}` : '',
+        references
       );
 
       if (message.role === 'assistant' && references.length) {
@@ -879,6 +921,7 @@ async function exportChatRecords(exportAll = false) {
 function resetNewChatState() {
   activeConversationId = null;
   latestReferences = [];
+  evidenceEnabled = false;
   if (chatSessionPill) {
     chatSessionPill.textContent = '当前为新对话';
   }
@@ -892,6 +935,7 @@ function resetNewChatState() {
   }
   renderSuggestions([]);
   renderEvidence([]);
+  syncEvidenceLayout();
   renderConversations(recentConversations);
 }
 
@@ -1005,7 +1049,7 @@ async function sendMessage() {
         conversationId: activeConversationId,
         question: text,
         history: [],
-        enableEvidence: evidenceEnabled,
+        enableEvidence: true,
         enableSuggestions: true,
         knowledgeScope: 'ALL'
       })
@@ -1015,7 +1059,7 @@ async function sendMessage() {
       chatSessionPill.textContent = `会话编号：${data.conversationId}`;
     }
     const clauses = (data.references || []).map((ref) => ref.clauseId || ref.clause_id).filter(Boolean).join(' / ');
-    appendMessage('assistant', data.answer, clauses ? `引用条款：${clauses}` : '');
+    appendMessage('assistant', data.answer, clauses ? `引用条款：${clauses}` : '', data.references || []);
     latestReferences = data.references || [];
     if (evidenceEnabled) {
       renderEvidence(latestReferences);
@@ -1033,7 +1077,16 @@ async function sendMessage() {
 if (sendButton && composerInput) {
   sendButton.addEventListener('click', sendMessage);
   composerInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key !== 'Enter' || event.isComposing) {
+      return;
+    }
+
+    if (event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!sendButton.disabled) {
       sendMessage();
     }
   });
@@ -1073,11 +1126,8 @@ if (newChatNavButton) {
   });
 }
 
-if (evidenceToggle) {
-  evidenceToggle.addEventListener('change', () => {
-    evidenceEnabled = evidenceToggle.checked;
-    syncEvidenceLayout();
-  });
+if (closeEvidenceButton) {
+  closeEvidenceButton.addEventListener('click', hideEvidencePanel);
 }
 
 if (saveProfileButton) {
