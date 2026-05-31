@@ -30,6 +30,7 @@ MILVUS_COLLECTION = os.getenv("MILVUS_COLLECTION", "dam_expert_db")
 EMBEDDING_MODEL = os.getenv("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v2")
 CHAT_MODEL = os.getenv("DASHSCOPE_CHAT_MODEL", "qwen-max")
 RERANK_MODEL = os.getenv("DASHSCOPE_RERANK_MODEL", "gte-rerank-v2")
+SNAPSHOT_RETENTION_DAYS = int(os.getenv("RAG_SNAPSHOT_RETENTION_DAYS", "7"))
 
 
 def ensure_runtime_dirs() -> None:

@@ -17,10 +17,11 @@ public class QaMessage {
     private String role;
 
     @Lob
+    @Column(columnDefinition = "LONGTEXT")
     private String content;
 
     @Lob
-    @Column(name = "reference_json")
+    @Column(name = "reference_json", columnDefinition = "LONGTEXT")
     private String referenceJson;
 
     @Column(name = "seq_no")
@@ -29,7 +30,8 @@ public class QaMessage {
     @Column(length = 30)
     private String status = "SUCCESS";
 
-    @Column(name = "error_message", length = 1000)
+    @Lob
+    @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
     @Column(name = "created_at")

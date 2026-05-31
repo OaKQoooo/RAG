@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -53,10 +52,11 @@ public class ChatService {
             conversationService.updateTitle(conversation, request.question());
             return response;
         } catch (RuntimeException ex) {
-            String message = ragErrorMessage(ex);
-            messageService.saveFailedAssistantMessage(conversation.getId(), message);
+            String diagnostic = ragDiagnostic(ex);
+            String userMessage = ragUserMessage(ex);
+            messageService.saveFailedAssistantMessage(conversation.getId(), diagnostic);
             conversationService.updateTitle(conversation, request.question());
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "RAG 服务调用失败：" + message, ex);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, userMessage, ex);
         }
     }
 
@@ -115,14 +115,18 @@ public class ChatService {
                 .toList();
     }
 
-    private String ragErrorMessage(RuntimeException ex) {
-        if (ex instanceof RestClientResponseException responseException) {
-            String body = responseException.getResponseBodyAsString();
-            if (body != null && !body.isBlank()) {
-                return body;
-            }
+    private String ragUserMessage(RuntimeException ex) {
+        if (ex instanceof RagServiceException ragException) {
+            return ragException.getUserMessage();
         }
-        return ex.getMessage();
+        return "知识库服务暂时不可用，请稍后重试。";
+    }
+
+    private String ragDiagnostic(RuntimeException ex) {
+        if (ex instanceof RagServiceException ragException) {
+            return "[" + ragException.getErrorCode() + "] " + ragException.getDetail();
+        }
+        return ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
     }
 
     private record DocumentScope(List<Long> documentIds, boolean restrictDocuments) {}

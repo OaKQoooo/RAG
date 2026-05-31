@@ -8,6 +8,7 @@ import com.example.damrag.dto.ChatDtos.RagChatResponse;
 import com.example.damrag.dto.ChatDtos.ReferenceItem;
 import com.example.damrag.dto.DocumentDtos.IngestResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -81,6 +82,7 @@ public class RagClient implements RagGateway {
                         ref.clause_id(),
                         ref.chapter(),
                         ref.page(),
+                        ref.document_page(),
                         ref.bbox_json(),
                         absoluteSnapshotUrl(ref.image_url()),
                         ref.content_preview(),
@@ -94,19 +96,19 @@ public class RagClient implements RagGateway {
         return new ChatResponse(conversationId, ragResponse.answer(), references, suggestions);
     }
 
-    public IngestResponse ingest(Path filePath, Long documentId, Long uploadedBy, boolean append) {
+    public IngestResponse ingest(Path filePath, Long documentId, Long uploadedBy, boolean append, Integer pageOffset) {
         try {
             String boundary = "DamRagBoundary-" + UUID.randomUUID();
             HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/documents/ingest"))
                     .version(HttpClient.Version.HTTP_1_1)
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .header("Accept", MediaType.APPLICATION_JSON_VALUE)
-                    .POST(multipartBody(filePath, documentId, uploadedBy, append, boundary))
+                    .POST(multipartBody(filePath, documentId, uploadedBy, append, pageOffset, boundary))
                     .build();
 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+                throw ragHttpError(response);
             }
 
             IngestResponse ingestResponse = objectMapper.readValue(response.body(), IngestResponse.class);
@@ -115,7 +117,7 @@ public class RagClient implements RagGateway {
             }
             return ingestResponse;
         } catch (IOException ex) {
-            throw new IllegalStateException("RAG ingest request failed: " + ex.getMessage(), ex);
+            throw ragUnavailable("RAG ingest request failed", ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("RAG ingest request was interrupted", ex);
@@ -128,7 +130,8 @@ public class RagClient implements RagGateway {
                 .map(doc -> new RebuildDocument(
                         String.valueOf(doc.getId()),
                         doc.getUploadedBy() == null ? "" : String.valueOf(doc.getUploadedBy()),
-                        uploadDir.resolve(doc.getStoredName()).toAbsolutePath().normalize().toString()
+                        uploadDir.resolve(doc.getStoredName()).toAbsolutePath().normalize().toString(),
+                        doc.getPageOffset()
                 ))
                 .toList();
 
@@ -144,14 +147,34 @@ public class RagClient implements RagGateway {
         try {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+                throw ragHttpError(response);
             }
             return objectMapper.readValue(response.body(), IngestResponse.class);
         } catch (IOException ex) {
-            throw new IllegalStateException("RAG rebuild request failed: " + ex.getMessage(), ex);
+            throw ragUnavailable("RAG rebuild request failed", ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("RAG rebuild request was interrupted", ex);
+        }
+    }
+
+    public void deleteDocument(Long documentId) {
+        HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/documents/" + documentId))
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                .DELETE()
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw ragHttpError(response);
+            }
+        } catch (IOException ex) {
+            throw ragUnavailable("RAG delete request failed", ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RAG delete request was interrupted", ex);
         }
     }
 
@@ -160,12 +183,16 @@ public class RagClient implements RagGateway {
             Long documentId,
             Long uploadedBy,
             boolean append,
+            Integer pageOffset,
             String boundary
     ) throws IOException {
         List<byte[]> parts = new ArrayList<>();
         addFormField(parts, boundary, "document_id", documentId == null ? "" : String.valueOf(documentId));
         addFormField(parts, boundary, "uploaded_by", uploadedBy == null ? "" : String.valueOf(uploadedBy));
         addFormField(parts, boundary, "append", String.valueOf(append));
+        if (pageOffset != null) {
+            addFormField(parts, boundary, "page_offset", String.valueOf(pageOffset));
+        }
         addFileField(parts, boundary, "file", filePath);
         parts.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return HttpRequest.BodyPublishers.ofByteArrays(parts);
@@ -226,14 +253,43 @@ public class RagClient implements RagGateway {
         try {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+                throw ragHttpError(response);
             }
             return objectMapper.readValue(response.body(), RagChatResponse.class);
         } catch (IOException ex) {
-            throw new IllegalStateException("RAG service request failed: " + ex.getMessage(), ex);
+            throw ragUnavailable("RAG service request failed", ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("RAG service request was interrupted", ex);
         }
+    }
+
+    private RagServiceException ragHttpError(HttpResponse<String> response) {
+        String body = response.body();
+        try {
+            JsonNode detail = objectMapper.readTree(body).path("detail");
+            if (detail.isObject()) {
+                String errorCode = detail.path("error_code").asText("RAG_INTERNAL_ERROR");
+                String userMessage = detail.path("message").asText("知识库服务暂时不可用，请稍后重试。");
+                String diagnostic = detail.path("detail").asText(body);
+                return new RagServiceException(errorCode, userMessage, diagnostic);
+            }
+        } catch (JsonProcessingException ignored) {
+            // Preserve the raw body for administrator diagnostics.
+        }
+        return new RagServiceException(
+                "RAG_HTTP_ERROR",
+                "知识库服务暂时不可用，请稍后重试。",
+                "RAG HTTP " + response.statusCode() + ": " + body
+        );
+    }
+
+    private RagServiceException ragUnavailable(String action, IOException ex) {
+        return new RagServiceException(
+                "RAG_SERVICE_UNAVAILABLE",
+                "知识库服务暂时不可用，请稍后重试。",
+                action + ": " + ex.getMessage(),
+                ex
+        );
     }
 }

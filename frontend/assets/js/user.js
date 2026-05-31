@@ -61,6 +61,7 @@ let activeEvidenceIndex = 0;
 let latestProfile = null;
 let recentConversations = [];
 const selectedConversationIds = new Set();
+let userDocumentPollTimer = null;
 
 if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !currentUser()) {
   window.location.replace('./index.html');
@@ -453,6 +454,7 @@ function renderEvidence(references = []) {
   const imageUrl = referenceImageUrl(ref);
   const sourceName = displaySourceName(ref.sourceFile || ref.source_file || ref.standardName);
   const clauseId = ref.clauseId || ref.clause_id || '';
+  const documentPage = ref.documentPage || ref.document_page || ref.page || '-';
   const contentPreview = ref.contentPreview || ref.content_preview || '';
   const preview = imageUrl
     ? `<img class="evidence-image" src="${escapeHtml(imageUrl)}" alt="原文${activeEvidenceIndex + 1}截图">`
@@ -462,7 +464,7 @@ function renderEvidence(references = []) {
     <article class="evidence-card">
       <div class="evidence-page ${references.length > 1 ? 'clickable' : ''}" ${references.length > 1 ? 'title="点击查看下一条原文"' : ''}>${preview}</div>
       <div class="evidence-info">
-        <p class="evidence-source">原文${activeEvidenceIndex + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(ref.page)} ｜ 条款：${escapeHtml(clauseId)}</p>
+        <p class="evidence-source">原文${activeEvidenceIndex + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(documentPage)} ｜ 条款：${escapeHtml(clauseId)}</p>
         ${contentPreview ? `<p class="evidence-snippet">${escapeHtml(contentPreview)}</p>` : ''}
       </div>
       <div class="evidence-nav">
@@ -650,9 +652,12 @@ function buildWordDocument(title, summaryRows, detailRows) {
 
 function referencesSummary(references = []) {
   return references
-    .map((ref) => [ref.sourceFile || ref.standardName || '', ref.clauseId || '', ref.page ? `P${ref.page}` : '']
-      .filter(Boolean)
-      .join(' '))
+    .map((ref) => {
+      const page = ref.documentPage || ref.document_page || ref.page;
+      return [ref.sourceFile || ref.standardName || '', ref.clauseId || '', page ? `P${page}` : '']
+        .filter(Boolean)
+        .join(' ');
+    })
     .filter(Boolean)
     .join('；');
 }
@@ -1055,6 +1060,33 @@ function statusBadgeClass(status = '') {
   return 'processing';
 }
 
+function statusBadgeClass(status = '') {
+  const value = String(status || '');
+  if (value.includes('失败') || value.includes('澶辫触')) return 'danger';
+  if (value.includes('完成') || value.includes('已完成') || value.includes('入库成功')
+      || value.includes('瀹屾垚') || value.includes('鍏ュ簱')) {
+    return 'success';
+  }
+  return 'processing';
+}
+
+function isIngestingStatus(status = '') {
+  const value = String(status || '');
+  return ['等待入库', '正在入库', '正在解析', '处理中'].some((item) => value.includes(item))
+    || ['寰呭', '姝ｅ湪', '瑙ｆ瀽', '澶勭悊涓'].some((item) => value.includes(item));
+}
+
+function syncDocumentPolling(documents = []) {
+  const hasProcessingDocument = documents.some((doc) => isIngestingStatus(doc.processStatus));
+  if (hasProcessingDocument && !userDocumentPollTimer) {
+    userDocumentPollTimer = window.setInterval(loadMyDocuments, 3000);
+  }
+  if (!hasProcessingDocument && userDocumentPollTimer) {
+    window.clearInterval(userDocumentPollTimer);
+    userDocumentPollTimer = null;
+  }
+}
+
 function createDeleteButton(onClick) {
   const button = document.createElement('button');
   button.className = 'danger-btn action-btn';
@@ -1133,6 +1165,7 @@ async function loadMyDocuments() {
     const documents = await requestJson('/documents/my');
     renderUserUploadList(documents);
     renderUserDocumentsTable(documents);
+    syncDocumentPolling(documents);
   } catch (error) {
     console.warn('加载个人文档失败', error);
     if (userUploadList) {
@@ -1180,7 +1213,7 @@ async function sendMessage() {
     await loadConversations();
     await refreshDataManagementSummary();
   } catch (error) {
-    updateMessage(pendingMessage, `请求后端失败：${error.message}`);
+    updateMessage(pendingMessage, error.message || '知识库服务暂时不可用，请稍后重试。');
   } finally {
     sendButton.disabled = false;
   }

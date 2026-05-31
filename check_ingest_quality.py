@@ -23,11 +23,9 @@ def walk_nodes(node: Any, results: list[dict], current_chapter: str = "") -> Non
     if isinstance(node, dict):
         chapter = current_chapter
 
-        # 顶层章节一般有 title，例如 "1 总 则"
         if node.get("title"):
             chapter = str(node.get("title")).strip()
 
-        # 当前项目中，真正条款节点通常是 type=L3，并且有 id/content/page
         is_clause = (
             node.get("type") == "L3"
             or (
@@ -42,7 +40,6 @@ def walk_nodes(node: Any, results: list[dict], current_chapter: str = "") -> Non
             copied["_chapter"] = chapter
             results.append(copied)
 
-        # 递归 sub_articles
         for child in node.get("sub_articles", []):
             walk_nodes(child, results, chapter)
 
@@ -58,6 +55,11 @@ def get_text(node: dict) -> str:
 
 def get_clause_id(node: dict) -> str:
     value = node.get("id") or node.get("clause_id") or ""
+    return str(value).strip()
+
+
+def get_document_key(node: dict) -> str:
+    value = node.get("document_id") or node.get("source") or node.get("source_path") or "unknown"
     return str(value).strip()
 
 
@@ -77,14 +79,26 @@ def has_bbox(node: dict) -> bool:
     return True
 
 
-def main() -> None:
-    data = load_json(FINAL_JSON_PATH)
-
+def build_quality_report_for_data(data: Any, json_path: Path | None = None) -> dict[str, Any]:
     nodes: list[dict] = []
     walk_nodes(data, nodes)
 
     clause_ids = [get_clause_id(node) for node in nodes if get_clause_id(node)]
-    duplicate_ids = [item for item, count in Counter(clause_ids).items() if count > 1]
+    duplicate_clause_keys = [
+        (get_document_key(node), get_clause_id(node))
+        for node in nodes
+        if get_clause_id(node)
+    ]
+    duplicate_within_document = [
+        {"document_key": document_key, "clause_id": clause_id, "count": count}
+        for (document_key, clause_id), count in Counter(duplicate_clause_keys).items()
+        if count > 1
+    ]
+    duplicate_across_documents = [
+        {"clause_id": clause_id, "document_count": len(document_keys)}
+        for clause_id, document_keys in _documents_by_clause(nodes).items()
+        if len(document_keys) > 1
+    ]
 
     empty_text = []
     missing_page = []
@@ -101,13 +115,10 @@ def main() -> None:
 
         if not text:
             empty_text.append(node)
-
         if not node.get("page"):
             missing_page.append(node)
-
         if not has_bbox(node):
             missing_bbox.append(node)
-
         if len(text) > LONG_TEXT_THRESHOLD:
             long_texts.append(
                 {
@@ -118,31 +129,75 @@ def main() -> None:
                 }
             )
 
-    print("\n========== 文档入库质量检查 ==========")
-    print(f"结构化文件：{FINAL_JSON_PATH}")
-    print(f"条款节点总数：{len(nodes)}")
-    print(f"有条款号的节点数：{len(clause_ids)}")
-    print(f"重复条款号数量：{len(duplicate_ids)}")
-    print(f"空内容节点数：{len(empty_text)}")
-    print(f"缺失 page 节点数：{len(missing_page)}")
-    print(f"缺失 bbox 节点数：{len(missing_bbox)}")
-    print(f"超过 {LONG_TEXT_THRESHOLD} 字符的长文本节点数：{len(long_texts)}")
+    return {
+        "json_path": str(json_path) if json_path else "",
+        "total_clauses": len(nodes),
+        "clause_id_count": len(clause_ids),
+        "duplicate_clause_id_count": len(duplicate_within_document),
+        "duplicate_within_document_count": len(duplicate_within_document),
+        "duplicate_across_documents_count": len(duplicate_across_documents),
+        "empty_content_count": len(empty_text),
+        "missing_page_count": len(missing_page),
+        "missing_bbox_count": len(missing_bbox),
+        "long_text_threshold": LONG_TEXT_THRESHOLD,
+        "long_text_count": len(long_texts),
+        "sample_duplicate_clause_ids": duplicate_within_document[:10],
+        "sample_cross_document_clause_ids": duplicate_across_documents[:10],
+        "sample_empty_content": [get_clause_id(node) for node in empty_text[:10]],
+        "sample_missing_page": [get_clause_id(node) for node in missing_page[:10]],
+        "sample_missing_bbox": [get_clause_id(node) for node in missing_bbox[:10]],
+        "sample_long_texts": sorted(long_texts, key=lambda x: x["length"], reverse=True)[:10],
+        "chapter_counts": dict(sorted(chapter_counter.items(), key=lambda x: x[0])),
+    }
 
-    print("\n========== 每章条款数量 ==========")
-    for chapter, count in sorted(chapter_counter.items(), key=lambda x: x[0]):
+
+def build_quality_report(json_path: Path = FINAL_JSON_PATH) -> dict[str, Any]:
+    return build_quality_report_for_data(load_json(json_path), json_path)
+
+
+def _documents_by_clause(nodes: list[dict]) -> dict[str, set[str]]:
+    documents_by_clause: dict[str, set[str]] = defaultdict(set)
+    for node in nodes:
+        clause_id = get_clause_id(node)
+        if clause_id:
+            documents_by_clause[clause_id].add(get_document_key(node))
+    return documents_by_clause
+
+
+def main() -> None:
+    report = build_quality_report()
+
+    print("\n========== 文档入库质量检查 ==========")
+    print(f"结构化文件：{report['json_path']}")
+    print(f"条文节点总数：{report['total_clauses']}")
+    print(f"有条文号的节点数：{report['clause_id_count']}")
+    print(f"同一文档内重复条文号数量：{report['duplicate_within_document_count']}")
+    print(f"跨文档同编号条文数量：{report['duplicate_across_documents_count']}")
+    print(f"空内容节点数：{report['empty_content_count']}")
+    print(f"缺失 page 节点数：{report['missing_page_count']}")
+    print(f"缺失 bbox 节点数：{report['missing_bbox_count']}")
+    print(f"超过 {report['long_text_threshold']} 字符的长文本节点数：{report['long_text_count']}")
+
+    print("\n========== 每章条文数量 ==========")
+    for chapter, count in report["chapter_counts"].items():
         print(f"{chapter}: {count}")
 
-    if duplicate_ids:
-        print("\n========== 重复条款号 Top 20 ==========")
-        for item in duplicate_ids[:20]:
+    if report["sample_duplicate_clause_ids"]:
+        print("\n========== 同一文档内重复条文号 Top 10 ==========")
+        for item in report["sample_duplicate_clause_ids"]:
             print(item)
 
-    if long_texts:
-        print("\n========== 长文本条款 Top 10 ==========")
-        for item in sorted(long_texts, key=lambda x: x["length"], reverse=True)[:10]:
+    if report["sample_cross_document_clause_ids"]:
+        print("\n========== 跨文档同编号条文 Top 10 ==========")
+        for item in report["sample_cross_document_clause_ids"]:
+            print(item)
+
+    if report["sample_long_texts"]:
+        print("\n========== 长文本条文 Top 10 ==========")
+        for item in report["sample_long_texts"]:
             print(f"[{item['length']} 字] {item['clause_id']} {item['chapter']} - {item['preview']}")
 
-    print("\n✅ 检查完成")
+    print("\n检查完成")
 
 
 if __name__ == "__main__":

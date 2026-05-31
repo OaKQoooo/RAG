@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pdfplumber
 
+from page_number import detect_document_page
+
 from rag_config import PDF_DIR, STEP1_OUTPUT_DIR, ensure_runtime_dirs
 
 # --- 配置区 ---
@@ -33,7 +35,7 @@ def is_obj_in_bbox(obj, bboxes):
             return True
     return False
 
-def process_single_pdf(pdf_path, output_folder=OUTPUT_FOLDER, document_id=None, uploaded_by=None):
+def process_single_pdf(pdf_path, output_folder=OUTPUT_FOLDER, document_id=None, uploaded_by=None, page_offset=None):
     """Parse one PDF and write page elements with bbox metadata to JSON."""
     pdf_path = Path(pdf_path)
     output_folder = Path(output_folder)
@@ -70,6 +72,7 @@ def process_single_pdf(pdf_path, output_folder=OUTPUT_FOLDER, document_id=None, 
 
             results.append({
                 "page": page_num,
+                "document_page": detect_document_page(page, page_num, page_offset),
                 "page_width": page.width,
                 "page_height": page.height,
                 "elements": sorted(elements, key=lambda x: x["top"])
@@ -109,12 +112,13 @@ def parse_args():
     parser.add_argument("--output-dir", default=str(OUTPUT_FOLDER), help="Step1 JSON 输出目录")
     parser.add_argument("--document-id", help="后端 kb_document.id，可选")
     parser.add_argument("--uploaded-by", help="上传用户 ID，可选")
+    parser.add_argument("--page-offset", type=int, help="PDF 页码减去该偏移后得到文档页码，可选")
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     if args.pdf:
-        process_single_pdf(args.pdf, args.output_dir, args.document_id, args.uploaded_by)
+        process_single_pdf(args.pdf, args.output_dir, args.document_id, args.uploaded_by, args.page_offset)
     else:
         process_folder(args.pdf_dir, args.output_dir)
     print(f"✅ PDF 坐标解析完成，存放于 {args.output_dir}")

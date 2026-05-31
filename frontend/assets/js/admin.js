@@ -3,7 +3,30 @@ const adminTitle = document.getElementById('admin-view-title');
 const adminDocumentsBody = document.getElementById('admin-documents-body');
 const adminUploadList = document.getElementById('admin-upload-list');
 const adminDocumentSearch = document.getElementById('admin-document-search');
+const adminUsersBody = document.getElementById('admin-users-body');
+const adminUserSearch = document.getElementById('admin-user-search');
+const adminActivityList = document.getElementById('admin-activity-list');
+const ragDebugQuestion = document.getElementById('rag-debug-question');
+const ragDebugTopK = document.getElementById('rag-debug-topk');
+const ragDebugRun = document.getElementById('rag-debug-run');
+const ragDebugStatus = document.getElementById('rag-debug-status');
+const ragDebugResults = document.getElementById('rag-debug-results');
+const ragQualityRefresh = document.getElementById('rag-quality-refresh');
+const ragQualityMetrics = document.getElementById('rag-quality-metrics');
+const ragQualityDuplicates = document.getElementById('rag-quality-duplicates');
+const ragQualityCrossDocument = document.getElementById('rag-quality-cross-document');
+const ragQualityLongTexts = document.getElementById('rag-quality-long-texts');
+const ragQualityStatus = document.getElementById('rag-quality-status');
+const ragOpsRefresh = document.getElementById('rag-ops-refresh');
+const ragOpsState = document.getElementById('rag-ops-state');
+const ragOpsUpdated = document.getElementById('rag-ops-updated');
+const ragOpsMetrics = document.getElementById('rag-ops-metrics');
+const ragOpsWarnings = document.getElementById('rag-ops-warnings');
+const ragOpsLastOperation = document.getElementById('rag-ops-last-operation');
 let adminDocumentRows = [];
+let adminUserRows = [];
+let adminDocumentPollTimer = null;
+const RAG_SERVICE_BASE = window.RAG_SERVICE_BASE || 'http://127.0.0.1:8000';
 
 const loginUser = currentUser();
 if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !loginUser || loginUser.role !== 'admin') {
@@ -14,6 +37,7 @@ if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !
 const adminTitles = {
   overview: '平台总览',
   library: '文档库管理',
+  operations: 'RAG 运维',
   users: '用户管理'
 };
 
@@ -22,6 +46,10 @@ adminNavButtons.forEach((button) => {
     const target = button.dataset.view;
     if (adminTitle && adminTitles[target]) {
       adminTitle.textContent = adminTitles[target];
+    }
+    if (target === 'operations') {
+      loadOperationalStatus();
+      loadQualityReport();
     }
   });
 });
@@ -52,6 +80,10 @@ function roleText(role) {
   return role || '-';
 }
 
+function statusText(status) {
+  return status === 1 ? '启用' : '禁用';
+}
+
 function visibilityText(visibility) {
   if (visibility === 'public') return '公共知识库';
   if (visibility === 'private') return '个人文档';
@@ -78,6 +110,38 @@ function statusBadgeClass(status = '') {
   return 'processing';
 }
 
+function statusBadgeClass(status = '') {
+  const value = String(status || '');
+  if (value.includes('失败') || value.includes('澶辫触')) return 'danger';
+  if (value.includes('完成') || value.includes('已完成') || value.includes('入库成功')
+      || value.includes('瀹屾垚') || value.includes('宸插畬鎴?') || value.includes('鍏ュ簱')) {
+    return 'success';
+  }
+  return 'processing';
+}
+
+function isIngestingStatus(status = '') {
+  const value = String(status || '');
+  return ['等待入库', '正在入库', '正在解析', '处理中'].some((item) => value.includes(item))
+    || ['寰呭', '姝ｅ湪', '瑙ｆ瀽', '澶勭悊涓'].some((item) => value.includes(item));
+}
+
+function syncDocumentPolling(documents = []) {
+  const hasProcessingDocument = documents.some((doc) => isIngestingStatus(doc.processStatus));
+  if (hasProcessingDocument && !adminDocumentPollTimer) {
+    adminDocumentPollTimer = window.setInterval(async () => {
+      await loadDocuments();
+      await loadOverview();
+      await loadActivities();
+      await loadQualityReport();
+    }, 3000);
+  }
+  if (!hasProcessingDocument && adminDocumentPollTimer) {
+    window.clearInterval(adminDocumentPollTimer);
+    adminDocumentPollTimer = null;
+  }
+}
+
 function createDeleteButton(onClick) {
   const button = document.createElement('button');
   button.className = 'danger-btn action-btn';
@@ -87,9 +151,67 @@ function createDeleteButton(onClick) {
   return button;
 }
 
+function createRetryButton(documentId) {
+  const button = document.createElement('button');
+  button.className = 'soft-btn action-btn';
+  button.type = 'button';
+  button.textContent = '重新入库';
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await requestJson(`/admin/documents/${documentId}/retry`, { method: 'POST' });
+      await loadDocuments();
+      await loadActivities();
+    } catch (error) {
+      alert(`重新入库失败：${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
+function createPageOffsetButton(doc) {
+  const button = document.createElement('button');
+  button.className = 'soft-btn action-btn';
+  button.type = 'button';
+  button.textContent = '页码校正';
+  button.title = doc.pageOffset === null || doc.pageOffset === undefined
+    ? '设置文档印刷页码与 PDF 页码的对应关系'
+    : `当前页码偏移量：${doc.pageOffset}`;
+  button.addEventListener('click', async () => {
+    const pdfPage = Number(window.prompt('请输入 PDF 阅读器显示的页码，例如 13：'));
+    if (!Number.isInteger(pdfPage) || pdfPage <= 0) {
+      alert('PDF 页码必须是大于 0 的整数');
+      return;
+    }
+    const documentPage = Number(window.prompt('请输入该页在文档中印刷的页码，例如 5：'));
+    if (!Number.isInteger(documentPage) || documentPage <= 0) {
+      alert('文档页码必须是大于 0 的整数');
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      await requestJson(`/admin/documents/${doc.id}/page-offset`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pdfPage, documentPage })
+      });
+      await loadDocuments();
+      await loadActivities();
+      alert('页码校正已保存，文档正在重新入库');
+    } catch (error) {
+      alert(`页码校正失败：${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
 async function deleteAdminDocument(documentId, fileName) {
   const confirmed = window.confirm(
-    `确认删除文档《${fileName}》吗？\n\n删除后系统会重新构建知识库，过程可能需要一段时间。`
+    `确认删除文档《${fileName}》吗？\n\n删除后系统会同步移除该文档对应的向量数据。`
   );
   if (!confirmed) return;
 
@@ -97,6 +219,7 @@ async function deleteAdminDocument(documentId, fileName) {
     await requestJson(`/admin/documents/${documentId}`, { method: 'DELETE' });
     await loadDocuments();
     await loadOverview();
+    await loadActivities();
     alert('文档已删除');
   } catch (error) {
     alert(`删除失败：${error.message}`);
@@ -126,6 +249,10 @@ function renderAdminUploadList(documents = []) {
     `;
     const actions = document.createElement('div');
     actions.className = 'row-actions';
+    if (String(doc.processStatus || '').includes('失败')) {
+      actions.appendChild(createRetryButton(doc.id));
+    }
+    actions.appendChild(createPageOffsetButton(doc));
     actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
     row.appendChild(actions);
     adminUploadList.appendChild(row);
@@ -143,6 +270,19 @@ async function loadOverview() {
   } catch (error) {
     console.warn('加载总览失败', error);
   }
+}
+
+function createStatusButton(user) {
+  const isSelf = Number(user.id) === Number(loginUser.id);
+  const nextStatus = user.status === 1 ? 0 : 1;
+  const button = document.createElement('button');
+  button.className = `${nextStatus === 1 ? 'soft-btn' : 'danger-btn'} action-btn`;
+  button.type = 'button';
+  button.textContent = nextStatus === 1 ? '启用' : '禁用';
+  button.disabled = isSelf;
+  button.title = isSelf ? '不能操作当前登录账号' : '';
+  button.addEventListener('click', () => updateUserStatus(user, nextStatus));
+  return button;
 }
 
 function renderAdminDocumentTable(rows = []) {
@@ -182,6 +322,10 @@ function renderAdminDocumentTable(rows = []) {
     const actionCell = document.createElement('td');
     const actions = document.createElement('div');
     actions.className = 'row-actions';
+    if (String(doc.processStatus || '').includes('失败')) {
+      actions.appendChild(createRetryButton(doc.id));
+    }
+    actions.appendChild(createPageOffsetButton(doc));
     actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
     actionCell.appendChild(actions);
     tr.append(actionCell);
@@ -218,6 +362,7 @@ async function loadDocuments() {
     adminDocumentRows = rows;
     renderAdminUploadList(rows);
     applyDocumentSearch();
+    syncDocumentPolling(rows);
   } catch (error) {
     console.warn('加载文档失败', error);
     adminDocumentsBody.innerHTML = '<tr><td colspan="8" class="empty-table-cell">文档加载失败</td></tr>';
@@ -228,23 +373,368 @@ async function loadDocuments() {
 }
 
 async function loadUsers() {
-  const tbody = document.querySelector('[data-view-panel="users"] tbody');
-  if (!tbody) return;
+  if (!adminUsersBody) return;
   try {
     const rows = await requestJson('/admin/users');
-    tbody.innerHTML = '';
-    rows.forEach((user) => {
-      const tr = document.createElement('tr');
-      tr.append(cell(user.username));
-      tr.append(cell(user.role));
-      const status = document.createElement('td');
-      status.innerHTML = `<span class="status-badge ${user.status === 1 ? 'success' : 'danger'}">${user.status === 1 ? '启用' : '禁用'}</span>`;
-      tr.append(status);
-      tr.append(cell('-'));
-      tbody.appendChild(tr);
-    });
+    adminUserRows = rows;
+    applyUserSearch();
   } catch (error) {
     console.warn('加载用户失败', error);
+    adminUsersBody.innerHTML = '<tr><td colspan="6" class="empty-table-cell">用户加载失败</td></tr>';
+  }
+}
+
+function qualityMetric(label, value, tone = '') {
+  return `
+    <div class="quality-metric ${tone}">
+      <strong>${escapeHtml(value)}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function renderOperationalStatus(report = {}) {
+  const stateMap = {
+    ok: ['正常', 'success'],
+    warning: ['注意', 'processing'],
+    error: ['异常', 'danger']
+  };
+  const [stateText, stateClass] = stateMap[report.status] || stateMap.error;
+  if (ragOpsState) {
+    ragOpsState.textContent = stateText;
+    ragOpsState.className = `status-badge ${stateClass}`;
+  }
+  if (ragOpsUpdated) {
+    ragOpsUpdated.textContent = `最近检查：${new Date().toLocaleString('zh-CN')}`;
+  }
+  if (ragOpsMetrics) {
+    ragOpsMetrics.innerHTML = [
+      qualityMetric('结构化文档', report.structured_documents ?? '-'),
+      qualityMetric('结构化条款', report.structured_clauses ?? '-'),
+      qualityMetric('预期向量块', report.expected_chunks ?? '-'),
+      qualityMetric('实际向量块', report.actual_chunks ?? '-', report.consistent === false ? 'danger' : ''),
+      qualityMetric('模型配置', report.dashscope_configured ? '已配置' : '未配置', report.dashscope_configured ? '' : 'danger'),
+      qualityMetric('数据一致性', report.consistent ? '一致' : '需检查', report.consistent ? '' : 'danger')
+    ].join('');
+  }
+
+  const warnings = report.warnings || [];
+  if (ragOpsWarnings) {
+    ragOpsWarnings.innerHTML = warnings.length
+      ? warnings.map((item) => `<span>${escapeHtml(item)}</span>`).join('')
+      : '<span class="quality-empty">未发现异常</span>';
+  }
+
+  const operation = report.last_operation || {};
+  if (ragOpsLastOperation) {
+    ragOpsLastOperation.innerHTML = `
+      <strong>${escapeHtml(operation.action || '-')} · ${escapeHtml(operation.status || '-')}</strong>
+      <span>${escapeHtml(operation.message || '-')}</span>
+      <span>${escapeHtml(operation.updated_at || '尚无写操作记录')}</span>
+    `;
+  }
+}
+
+async function loadOperationalStatus() {
+  if (!ragOpsMetrics) return;
+  if (ragOpsState) {
+    ragOpsState.textContent = '正在检查';
+    ragOpsState.className = 'status-badge processing';
+  }
+  try {
+    const response = await fetch(`${RAG_SERVICE_BASE}/health`);
+    if (!response.ok) throw new Error(await response.text());
+    renderOperationalStatus(await response.json());
+  } catch (error) {
+    renderOperationalStatus({
+      status: 'error',
+      consistent: false,
+      warnings: [`RAG 服务连接失败：${error.message}`]
+    });
+  }
+}
+
+function renderQualityChipList(element, items = []) {
+  if (!element) return;
+  if (!items.length) {
+    element.innerHTML = '<span class="quality-empty">无</span>';
+    return;
+  }
+  element.innerHTML = items
+    .map((item) => `<span>${escapeHtml(formatQualityChip(item))}</span>`)
+    .join('');
+}
+
+function formatQualityChip(item) {
+  if (typeof item !== 'object' || item === null) return item;
+  if (item.document_key) {
+    return `${item.document_key} · ${item.clause_id} × ${item.count}`;
+  }
+  if (item.document_count) {
+    return `${item.clause_id} · ${item.document_count} 份文档`;
+  }
+  return JSON.stringify(item);
+}
+
+function renderQualityLongTexts(items = []) {
+  if (!ragQualityLongTexts) return;
+  if (!items.length) {
+    ragQualityLongTexts.innerHTML = '<span class="quality-empty">无</span>';
+    return;
+  }
+  ragQualityLongTexts.innerHTML = items.map((item) => `
+    <article>
+      <strong>${escapeHtml(item.clause_id || '-')} · ${escapeHtml(item.length || '-')} 字</strong>
+      <span>${escapeHtml(item.chapter || '-')}</span>
+      <p>${escapeHtml(item.preview || '')}</p>
+    </article>
+  `).join('');
+}
+
+function renderQualityReport(report = {}) {
+  if (ragQualityMetrics) {
+    ragQualityMetrics.innerHTML = [
+      qualityMetric('条文节点', report.total_clauses ?? '-'),
+      qualityMetric('文档内重复', report.duplicate_within_document_count ?? report.duplicate_clause_id_count ?? '-', report.duplicate_clause_id_count ? 'danger' : ''),
+      qualityMetric('跨文档同编号', report.duplicate_across_documents_count ?? '-'),
+      qualityMetric('空内容', report.empty_content_count ?? '-', report.empty_content_count ? 'danger' : ''),
+      qualityMetric('缺失 page', report.missing_page_count ?? '-', report.missing_page_count ? 'danger' : ''),
+      qualityMetric('缺失 bbox', report.missing_bbox_count ?? '-', report.missing_bbox_count ? 'danger' : ''),
+      qualityMetric('长文本', report.long_text_count ?? '-', report.long_text_count ? 'warn' : ''),
+    ].join('');
+  }
+  renderQualityChipList(ragQualityDuplicates, report.sample_duplicate_clause_ids || []);
+  renderQualityChipList(ragQualityCrossDocument, report.sample_cross_document_clause_ids || []);
+  renderQualityLongTexts(report.sample_long_texts || []);
+}
+
+async function loadQualityReport() {
+  if (!ragQualityMetrics) return;
+  if (ragQualityStatus) ragQualityStatus.textContent = '正在加载质量报告...';
+  try {
+    const response = await fetch(`${RAG_SERVICE_BASE}/api/rag/quality`);
+    if (!response.ok) throw new Error(await response.text());
+    const report = await response.json();
+    renderQualityReport(report);
+    if (ragQualityStatus) {
+      ragQualityStatus.textContent = `报告已更新：${report.json_path || ''}`;
+    }
+  } catch (error) {
+    if (ragQualityStatus) ragQualityStatus.textContent = `质量报告加载失败：${error.message}`;
+    if (ragQualityMetrics) {
+      ragQualityMetrics.innerHTML = '<div class="empty-hint">请确认 RAG 服务已启动并完成至少一次入库。</div>';
+    }
+  }
+}
+
+function renderActivities(rows = []) {
+  if (!adminActivityList) return;
+
+  adminActivityList.innerHTML = '';
+
+  if (!rows.length) {
+    adminActivityList.innerHTML = '<div class="empty-hint">暂无近期活动</div>';
+    return;
+  }
+
+  rows.forEach((activity) => {
+    const row = document.createElement('div');
+    row.className = 'activity-row';
+    row.innerHTML = `
+      <strong>${escapeHtml(activity.actorName || 'system')}</strong>
+      <div class="activity-detail">
+        <span>${escapeHtml(activity.message || activity.action || '-')}</span>
+        <small>${formatDateTime(activity.createdAt)}</small>
+      </div>
+    `;
+    adminActivityList.appendChild(row);
+  });
+}
+
+async function loadActivities() {
+  if (!adminActivityList) return;
+
+  try {
+    const rows = await requestJson('/admin/activities');
+    renderActivities(rows);
+  } catch (error) {
+    console.warn('加载近期活动失败', error);
+    adminActivityList.innerHTML = '<div class="empty-hint">近期活动加载失败</div>';
+  }
+}
+
+function debugMetaValue(metadata = {}, key) {
+  const value = metadata[key];
+  return value === undefined || value === null || value === '' ? '-' : String(value);
+}
+
+function displayDebugSourceName(value = '') {
+  return String(value || '-')
+    .replace(/\.pdf$/i, '')
+    .replace(/^(user|admin)_\d+_\d{14}_/, '')
+    .replace(/\+/g, ' ')
+    .replace(/^DLT\s+/i, 'DL/T ');
+}
+
+function renderRagDebugResults(results = []) {
+  if (!ragDebugResults) return;
+  if (!results.length) {
+    ragDebugResults.innerHTML = '<div class="empty-hint">没有召回结果</div>';
+    return;
+  }
+
+  ragDebugResults.innerHTML = '';
+  results.forEach((item) => {
+    const metadata = item.metadata || {};
+    const card = document.createElement('article');
+    card.className = 'rag-debug-card';
+    card.innerHTML = `
+      <div class="rag-debug-card-head">
+        <strong>#${escapeHtml(item.rank || '-')} ${escapeHtml(displayDebugSourceName(debugMetaValue(metadata, 'source_file')))}</strong>
+        <span>${escapeHtml(debugMetaValue(metadata, 'clause_id'))}</span>
+      </div>
+      <div class="rag-debug-meta">
+        <span>document_page: ${escapeHtml(debugMetaValue(metadata, 'document_page'))}</span>
+        <span>pdf_page: ${escapeHtml(debugMetaValue(metadata, 'page'))}</span>
+        <span>document_id: ${escapeHtml(debugMetaValue(metadata, 'document_id'))}</span>
+        <span>chunk: ${escapeHtml(debugMetaValue(metadata, 'chunk_index'))}</span>
+      </div>
+      <p>${escapeHtml(item.content_preview || '')}</p>
+      <details>
+        <summary>查看 metadata</summary>
+        <pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>
+      </details>
+    `;
+    ragDebugResults.appendChild(card);
+  });
+}
+
+async function ragDebugError(response) {
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text);
+    const detail = payload.detail || {};
+    if (typeof detail === 'object') {
+      const code = detail.error_code || 'RAG_ERROR';
+      return `[${code}] ${detail.message || 'RAG 服务调用失败'}\n${detail.detail || ''}`.trim();
+    }
+  } catch {
+    // Keep the raw response when the service does not return structured JSON.
+  }
+  return text || `RAG HTTP ${response.status}`;
+}
+
+async function runRagDebugSearch() {
+  if (!ragDebugQuestion || !ragDebugRun) return;
+  const question = ragDebugQuestion.value.trim();
+  const topK = Math.min(Math.max(Number(ragDebugTopK?.value || 5), 1), 20);
+
+  if (!question) {
+    if (ragDebugStatus) ragDebugStatus.textContent = '请输入测试问题';
+    return;
+  }
+
+  ragDebugRun.disabled = true;
+  if (ragDebugStatus) ragDebugStatus.textContent = '正在检索...';
+  if (ragDebugResults) {
+    ragDebugResults.innerHTML = '<div class="empty-hint">正在召回向量片段...</div>';
+  }
+
+  try {
+    const response = await fetch(`${RAG_SERVICE_BASE}/api/rag/debug/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, topK })
+    });
+    if (!response.ok) throw new Error(await ragDebugError(response));
+    const data = await response.json();
+    renderRagDebugResults(data.results || []);
+    if (ragDebugStatus) {
+      ragDebugStatus.textContent = `完成：召回 ${(data.results || []).length} 条`;
+    }
+  } catch (error) {
+    if (ragDebugStatus) ragDebugStatus.textContent = `调试失败：${error.message}`;
+    if (ragDebugResults) {
+      ragDebugResults.innerHTML = '<div class="empty-hint">调试接口调用失败，请确认 RAG 服务已启动。</div>';
+    }
+  } finally {
+    ragDebugRun.disabled = false;
+  }
+}
+
+function renderAdminUserTable(rows = []) {
+  if (!adminUsersBody) return;
+
+  adminUsersBody.innerHTML = '';
+
+  if (!rows.length) {
+    adminUsersBody.innerHTML = '<tr><td colspan="6" class="empty-table-cell">暂无用户</td></tr>';
+    return;
+  }
+
+  rows.forEach((user) => {
+    const tr = document.createElement('tr');
+
+    tr.append(cell(user.username || '-'));
+    tr.append(cell(user.phone || '-'));
+    tr.append(cell(roleText(user.role)));
+
+    const statusCell = document.createElement('td');
+    statusCell.innerHTML = `
+      <span class="status-badge ${user.status === 1 ? 'success' : 'danger'}">
+        ${statusText(user.status)}
+      </span>
+    `;
+    tr.append(statusCell);
+
+    tr.append(cell(formatDateTime(user.createdAt)));
+
+    const actionCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.appendChild(createStatusButton(user));
+    actionCell.appendChild(actions);
+    tr.append(actionCell);
+
+    adminUsersBody.appendChild(tr);
+  });
+}
+
+function applyUserSearch() {
+  const keyword = (adminUserSearch?.value || '').trim().toLowerCase();
+
+  if (!keyword) {
+    renderAdminUserTable(adminUserRows);
+    return;
+  }
+
+  const filtered = adminUserRows.filter((user) => (
+    textIncludes(user.username, keyword)
+      || textIncludes(user.phone, keyword)
+      || textIncludes(user.role, keyword)
+      || textIncludes(roleText(user.role), keyword)
+      || textIncludes(statusText(user.status), keyword)
+  ));
+
+  renderAdminUserTable(filtered);
+}
+
+async function updateUserStatus(user, nextStatus) {
+  const actionText = nextStatus === 1 ? '启用' : '禁用';
+  const confirmed = window.confirm(`确认${actionText}用户「${user.username || user.phone}」吗？`);
+  if (!confirmed) return;
+
+  try {
+    await requestJson(`/admin/users/${user.id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: nextStatus })
+    });
+    await loadUsers();
+    await loadOverview();
+    await loadActivities();
+    alert(`用户已${actionText}`);
+  } catch (error) {
+    alert(`${actionText}失败：${error.message}`);
   }
 }
 
@@ -270,6 +760,7 @@ if (adminUploadButton) {
       if (!response.ok) throw new Error(await response.text());
       await loadDocuments();
       await loadOverview();
+      await loadActivities();
       alert('管理员文档已提交入库流程');
     } catch (error) {
       alert(`上传失败：${error.message}`);
@@ -283,11 +774,38 @@ if (adminDocumentSearch) {
   adminDocumentSearch.addEventListener('input', applyDocumentSearch);
 }
 
+if (adminUserSearch) {
+  adminUserSearch.addEventListener('input', applyUserSearch);
+}
+
+if (ragDebugRun) {
+  ragDebugRun.addEventListener('click', runRagDebugSearch);
+}
+
+if (ragDebugQuestion) {
+  ragDebugQuestion.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      runRagDebugSearch();
+    }
+  });
+}
+
+if (ragQualityRefresh) {
+  ragQualityRefresh.addEventListener('click', loadQualityReport);
+}
+
+if (ragOpsRefresh) {
+  ragOpsRefresh.addEventListener('click', loadOperationalStatus);
+}
+
 function initializeAdminPage() {
   document.documentElement.classList.remove('auth-checking');
   loadOverview();
+  loadActivities();
   loadDocuments();
   loadUsers();
+  loadQualityReport();
 }
 
 (window.DAM_RAG_AUTH_READY || Promise.resolve(loginUser))

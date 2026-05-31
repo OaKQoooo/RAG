@@ -202,7 +202,9 @@ public class AuthService {
                 user.getRole(),
                 user.getStatus(),
                 user.getAvatarUrl(),
-                user.getTheme()
+                user.getTheme(),
+                user.getCreatedAt(),
+                user.getUpdatedAt()
         );
     }
 }

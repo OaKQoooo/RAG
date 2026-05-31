@@ -31,6 +31,9 @@ public class KbDocument {
     @Column(name = "error_message", length = 1000)
     private String errorMessage;
 
+    @Column(name = "page_offset")
+    private Integer pageOffset;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -64,6 +67,8 @@ public class KbDocument {
     public void setProcessStatus(String processStatus) { this.processStatus = processStatus; }
     public String getErrorMessage() { return errorMessage; }
     public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+    public Integer getPageOffset() { return pageOffset; }
+    public void setPageOffset(Integer pageOffset) { this.pageOffset = pageOffset; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }

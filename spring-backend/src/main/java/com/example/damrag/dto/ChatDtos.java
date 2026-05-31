@@ -16,7 +16,7 @@ public class ChatDtos {
             List<Long> documentIds,
             Integer topK
     ) {}
-    public record ReferenceItem(String sourceFile, String clauseId, String chapter, Integer page, String bboxJson, String imageUrl, String contentPreview, Long documentId) {}
+    public record ReferenceItem(String sourceFile, String clauseId, String chapter, Integer page, String documentPage, String bboxJson, String imageUrl, String contentPreview, Long documentId) {}
     public record ChatResponse(Long conversationId, String answer, List<ReferenceItem> references, List<String> suggestions) {}
     public record ConversationView(Long id, Long userId, String title, LocalDateTime createdAt, LocalDateTime updatedAt) {}
     public record CreateConversationRequest(String title) {}
@@ -30,6 +30,7 @@ public class ChatDtos {
             String clauseId,
             String chapter,
             Integer page,
+            String documentPage,
             String bboxJson,
             String imageUrl,
             String contentPreview,
@@ -59,6 +60,6 @@ public class ChatDtos {
             @JsonProperty("documentIds") List<Long> documentIds,
             @JsonProperty("restrictDocuments") Boolean restrictDocuments
     ) {}
-    public record RagReferenceItem(String source_file, String clause_id, String chapter, Integer page, String bbox_json, String image_url, String content_preview, String document_id) {}
+    public record RagReferenceItem(String source_file, String clause_id, String chapter, Integer page, String document_page, String bbox_json, String image_url, String content_preview, String document_id) {}
     public record RagChatResponse(String answer, List<RagReferenceItem> references, List<String> suggestions) {}
 }

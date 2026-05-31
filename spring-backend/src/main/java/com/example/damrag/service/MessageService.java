@@ -115,6 +115,7 @@ public class MessageService {
             reference.setClauseId(item.clauseId());
             reference.setChapter(item.chapter());
             reference.setPage(item.page());
+            reference.setDocumentPage(item.documentPage());
             reference.setBboxJson(item.bboxJson());
             reference.setImageUrl(item.imageUrl());
             reference.setContentPreview(item.contentPreview());
@@ -148,6 +149,7 @@ public class MessageService {
                 reference.getClauseId(),
                 reference.getChapter(),
                 reference.getPage(),
+                reference.getDocumentPage(),
                 reference.getBboxJson(),
                 reference.getImageUrl(),
                 reference.getContentPreview(),

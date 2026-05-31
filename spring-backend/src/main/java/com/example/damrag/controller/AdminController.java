@@ -1,9 +1,13 @@
 package com.example.damrag.controller;
 
+import com.example.damrag.dto.ActivityDtos.ActivityView;
 import com.example.damrag.dto.AuthDtos.UserView;
 import com.example.damrag.dto.DocumentDtos.StatusRequest;
+import com.example.damrag.dto.DocumentDtos.PageOffsetRequest;
+import com.example.damrag.model.AdminActivity;
 import com.example.damrag.model.KbDocument;
 import com.example.damrag.model.User;
+import com.example.damrag.repository.AdminActivityRepository;
 import com.example.damrag.repository.KbChunkRepository;
 import com.example.damrag.repository.KbClauseRepository;
 import com.example.damrag.repository.KbDocumentRepository;
@@ -24,6 +28,7 @@ public class AdminController {
     private final UserRepository userRepository;
     private final KbClauseRepository clauseRepository;
     private final KbChunkRepository chunkRepository;
+    private final AdminActivityRepository activityRepository;
     private final DocumentController documentController;
     private final AuthService authService;
 
@@ -32,6 +37,7 @@ public class AdminController {
             UserRepository userRepository,
             KbClauseRepository clauseRepository,
             KbChunkRepository chunkRepository,
+            AdminActivityRepository activityRepository,
             DocumentController documentController,
             AuthService authService
     ) {
@@ -39,6 +45,7 @@ public class AdminController {
         this.userRepository = userRepository;
         this.clauseRepository = clauseRepository;
         this.chunkRepository = chunkRepository;
+        this.activityRepository = activityRepository;
         this.documentController = documentController;
         this.authService = authService;
     }
@@ -66,34 +73,155 @@ public class AdminController {
                 .toList();
     }
 
+    @GetMapping("/activities")
+    public List<ActivityView> activities(@RequestHeader(value = "Authorization", required = false) String token) {
+        requireAdmin(token);
+        return activityRepository.findTop20ByOrderByCreatedAtDesc()
+                .stream()
+                .map(this::toActivityView)
+                .toList();
+    }
+
     @PostMapping("/documents/upload")
     public List<KbDocument> uploadAdminDocuments(
             @RequestHeader(value = "Authorization", required = false) String token,
             @RequestParam("files") MultipartFile[] files
     ) {
         User admin = requireAdmin(token);
-        return documentController.upload(files, admin.getId(), "admin", "public");
+        List<KbDocument> documents = documentController.upload(files, admin.getId(), "admin", "public");
+        documents.forEach(document -> logActivity(
+                admin,
+                "document_upload",
+                "上传文档《" + document.getFileName() + "》，入库状态：" + document.getProcessStatus(),
+                "document",
+                document.getId()
+        ));
+        return documents;
     }
 
     @DeleteMapping("/documents/{id}")
     public void deleteDocument(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id) {
-        requireAdmin(token);
+        User admin = requireAdmin(token);
+        KbDocument document = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
         documentController.deleteDocumentById(id);
+        logActivity(
+                admin,
+                "document_delete",
+                "删除文档《" + document.getFileName() + "》及对应向量",
+                "document",
+                id
+        );
+    }
+
+    @PostMapping("/documents/{id}/retry")
+    public KbDocument retryDocument(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id) {
+        User admin = requireAdmin(token);
+        KbDocument document = documentController.retryDocumentById(id);
+        logActivity(
+                admin,
+                "document_retry",
+                "重新提交文档《" + document.getFileName() + "》入库",
+                "document",
+                id
+        );
+        return document;
+    }
+
+    @PatchMapping("/documents/{id}/page-offset")
+    public KbDocument updatePageOffset(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @PathVariable Long id,
+            @RequestBody PageOffsetRequest request
+    ) {
+        User admin = requireAdmin(token);
+        if (request == null || request.pdfPage() == null || request.documentPage() == null
+                || request.pdfPage() <= 0 || request.documentPage() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PDF page and document page must be positive integers");
+        }
+        int pageOffset = request.pdfPage() - request.documentPage();
+        KbDocument document = documentController.updatePageOffsetAndRetry(id, pageOffset);
+        logActivity(
+                admin,
+                "document_page_offset",
+                "Update document page offset for " + document.getFileName() + ": " + pageOffset,
+                "document",
+                id
+        );
+        return document;
     }
 
     @GetMapping("/users")
     public List<UserView> users(@RequestHeader(value = "Authorization", required = false) String token) {
         requireAdmin(token);
-        return userRepository.findAll().stream().map(this::toView).toList();
+        return userRepository.findAll()
+                .stream()
+                .sorted(Comparator.comparing(
+                        User::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                ))
+                .map(this::toView)
+                .toList();
     }
 
     @PatchMapping("/users/{id}/status")
     public UserView updateStatus(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id, @RequestBody StatusRequest request) {
-        requireAdmin(token);
+        User admin = requireAdmin(token);
+        if (admin.getId().equals(id)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不能禁用当前登录的管理员账号");
+        }
+        if (request == null || request.status() == null || (request.status() != 0 && request.status() != 1)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "用户状态只能是 0 或 1");
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "用户不存在"));
         user.setStatus(request.status());
-        return toView(userRepository.save(user));
+        User saved = userRepository.save(user);
+        String actionText = saved.getStatus() == 1 ? "启用" : "禁用";
+        logActivity(
+                admin,
+                "user_status",
+                actionText + "用户「" + displayName(saved) + "」",
+                "user",
+                saved.getId()
+        );
+        return toView(saved);
+    }
+
+    private void logActivity(User actor, String action, String message, String targetType, Long targetId) {
+        AdminActivity activity = new AdminActivity();
+        activity.setActorId(actor.getId());
+        activity.setActorName(displayName(actor));
+        activity.setActorRole(actor.getRole());
+        activity.setAction(action);
+        activity.setMessage(message);
+        activity.setTargetType(targetType);
+        activity.setTargetId(targetId);
+        activityRepository.save(activity);
+    }
+
+    private ActivityView toActivityView(AdminActivity activity) {
+        return new ActivityView(
+                activity.getId(),
+                activity.getActorId(),
+                activity.getActorName(),
+                activity.getActorRole(),
+                activity.getAction(),
+                activity.getMessage(),
+                activity.getTargetType(),
+                activity.getTargetId(),
+                activity.getCreatedAt()
+        );
+    }
+
+    private String displayName(User user) {
+        if (user.getUsername() != null && !user.getUsername().isBlank()) {
+            return user.getUsername();
+        }
+        if (user.getPhone() != null && !user.getPhone().isBlank()) {
+            return user.getPhone();
+        }
+        return "用户" + user.getId();
     }
 
     private UserView toView(User user) {
@@ -104,7 +232,9 @@ public class AdminController {
                 user.getRole(),
                 user.getStatus(),
                 user.getAvatarUrl(),
-                user.getTheme()
+                user.getTheme(),
+                user.getCreatedAt(),
+                user.getUpdatedAt()
         );
     }
 

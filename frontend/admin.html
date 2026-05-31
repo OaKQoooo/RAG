@@ -30,6 +30,7 @@
         <nav class="nav-block">
           <button class="nav-item active" data-view="overview">总览</button>
           <button class="nav-item" data-view="library">文档库管理</button>
+          <button class="nav-item" data-view="operations">RAG 运维</button>
           <button class="nav-item" data-view="users">用户管理</button>
         </nav>
 
@@ -92,19 +93,8 @@
                 <h3>近期活动</h3>
               </div>
             </div>
-            <div class="activity-list">
-              <div class="activity-row">
-                <strong>admin_root</strong>
-                <span>上传《大坝安全监测系统验收规范》</span>
-              </div>
-              <div class="activity-row">
-                <strong>system</strong>
-                <span>文档 user_11_20260401_003.pdf 向量化完成</span>
-              </div>
-              <div class="activity-row">
-                <strong>admin_root</strong>
-                <span>将用户 engineer_04 设置为禁用</span>
-              </div>
+            <div class="activity-list" id="admin-activity-list">
+              <div class="empty-hint">暂无近期活动</div>
             </div>
           </div>
         </div>
@@ -156,6 +146,105 @@
         </div>
       </section>
 
+      <section class="view" data-view-panel="operations">
+        <div class="workspace">
+          <div class="glass-panel rag-ops-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>RAG 运维状态</h3>
+                <p>检查知识库服务、结构化数据和向量数据是否保持一致。</p>
+              </div>
+              <button id="rag-ops-refresh" class="soft-btn" type="button">刷新状态</button>
+            </div>
+
+            <div class="rag-ops-summary">
+              <span id="rag-ops-state" class="status-badge processing">正在检查</span>
+              <span id="rag-ops-updated">-</span>
+            </div>
+
+            <div class="quality-metrics" id="rag-ops-metrics">
+              <div class="empty-hint">暂无运维状态</div>
+            </div>
+
+            <div class="quality-detail-grid">
+              <div class="quality-detail-card">
+                <h4>检查结果</h4>
+                <div id="rag-ops-warnings" class="ops-message-list">
+                  <span class="quality-empty">正在加载</span>
+                </div>
+              </div>
+              <div class="quality-detail-card">
+                <h4>最近一次写操作</h4>
+                <div id="rag-ops-last-operation" class="ops-last-operation">-</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass-panel rag-quality-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>入库质量报告</h3>
+                <p>查看结构化条文、定位信息和长文本风险。</p>
+              </div>
+              <button id="rag-quality-refresh" class="soft-btn" type="button">刷新报告</button>
+            </div>
+
+            <div class="quality-metrics" id="rag-quality-metrics">
+              <div class="empty-hint">暂无质量报告</div>
+            </div>
+
+            <div class="quality-detail-grid">
+              <div class="quality-detail-card">
+                <h4>同一文档内重复条文号</h4>
+                <div id="rag-quality-duplicates" class="quality-chip-list">
+                  <span>-</span>
+                </div>
+              </div>
+              <div class="quality-detail-card">
+                <h4>跨文档同编号条文</h4>
+                <div id="rag-quality-cross-document" class="quality-chip-list">
+                  <span>-</span>
+                </div>
+              </div>
+              <div class="quality-detail-card">
+                <h4>长文本条文</h4>
+                <div id="rag-quality-long-texts" class="quality-long-list">
+                  <span>-</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="rag-debug-status" id="rag-quality-status"></div>
+          </div>
+
+          <div class="glass-panel rag-debug-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>RAG 调试面板</h3>
+                <p>输入测试问题，查看向量库实际召回的条文片段。</p>
+              </div>
+              <div class="pill">Debug</div>
+            </div>
+
+            <div class="rag-debug-form">
+              <textarea id="rag-debug-question" placeholder="例如：水库大坝安全监测有哪些要求？"></textarea>
+              <div class="rag-debug-actions">
+                <label>
+                  <span>返回数量</span>
+                  <input id="rag-debug-topk" type="number" min="1" max="20" value="5">
+                </label>
+                <button id="rag-debug-run" class="primary-btn" type="button">调试检索</button>
+              </div>
+            </div>
+
+            <div class="rag-debug-status" id="rag-debug-status"></div>
+            <div class="rag-debug-results" id="rag-debug-results">
+              <div class="empty-hint">暂无调试结果</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="view" data-view-panel="users">
         <div class="workspace settings-stack">
           <div class="glass-panel doc-table-panel">
@@ -163,38 +252,21 @@
               <div>
                 <h3>用户管理</h3>
               </div>
-              <input class="table-search" placeholder="搜索用户名">
+              <input id="admin-user-search" class="table-search" placeholder="搜索用户名、手机号、角色">
             </div>
 
-            <table class="data-table">
+            <table class="data-table admin-user-table">
               <thead>
                 <tr>
                   <th>用户名</th>
+                  <th>手机号</th>
                   <th>角色</th>
                   <th>状态</th>
-                  <th>最近会话</th>
+                  <th>注册时间</th>
+                  <th>操作</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td>engineer_01</td>
-                  <td>user</td>
-                  <td><span class="status-badge success">启用</span></td>
-                  <td>重力坝稳定性验算</td>
-                </tr>
-                <tr>
-                  <td>engineer_04</td>
-                  <td>user</td>
-                  <td><span class="status-badge danger">禁用</span></td>
-                  <td>施工缝处理要求</td>
-                </tr>
-                <tr>
-                  <td>admin_root</td>
-                  <td>admin</td>
-                  <td><span class="status-badge success">启用</span></td>
-                  <td>系统文档库巡检</td>
-                </tr>
-              </tbody>
+              <tbody id="admin-users-body"></tbody>
             </table>
           </div>
 

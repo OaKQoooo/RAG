@@ -5,17 +5,27 @@ import com.example.damrag.model.User;
 import com.example.damrag.repository.KbDocumentRepository;
 import com.example.damrag.service.AuthService;
 import com.example.damrag.service.RagClient;
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
-import com.example.damrag.dto.DocumentDtos.IngestResponse;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -24,6 +34,7 @@ public class DocumentController {
     private final RagClient ragClient;
     private final AuthService authService;
     private final Path uploadDir;
+    private final ExecutorService ingestExecutor = Executors.newSingleThreadExecutor();
 
     public DocumentController(
             KbDocumentRepository documentRepository,
@@ -74,10 +85,14 @@ public class DocumentController {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "无法创建上传目录");
         }
 
-        return List.of(files).stream().map(file -> {
+        List<KbDocument> allDocuments = new ArrayList<>();
+        List<KbDocument> savedDocuments = new ArrayList<>();
+
+        for (MultipartFile file : files) {
             if (file.isEmpty() || file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持非空 PDF 文件");
             }
+
             String storedName = storedName(userId, role, file.getOriginalFilename());
             Path storedPath = uploadDir.resolve(storedName);
             KbDocument document = new KbDocument();
@@ -86,35 +101,53 @@ public class DocumentController {
             document.setUploadedBy(userId);
             document.setUploadRole(role);
             document.setVisibility(visibility);
-            document.setProcessStatus("正在解析");
+            document.setProcessStatus("等待入库");
             document = documentRepository.save(document);
+            allDocuments.add(document);
 
             try {
                 file.transferTo(storedPath);
-                document.setProcessStatus("正在解析");
-                documentRepository.save(document);
-
-                List<KbDocument> activeDocuments = documentRepository.findAll()
-                        .stream()
-                        .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
-                        .toList();
-
-                ragClient.rebuild(activeDocuments, uploadDir);
-
-                document.setProcessStatus("已完成");
-                document.setErrorMessage(null);
+                savedDocuments.add(document);
             } catch (Exception e) {
                 document.setProcessStatus("处理失败");
-                document.setErrorMessage(e.getMessage());
+                document.setErrorMessage(summarizeDiagnostic(e.getMessage()));
+                documentRepository.save(document);
             }
-            return documentRepository.save(document);
-        }).toList();
+        }
+
+        if (!savedDocuments.isEmpty()) {
+            ingestAsync(savedDocuments);
+        }
+
+        return allDocuments;
     }
 
     protected void deleteDocumentById(Long id) {
         KbDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
         deleteDocument(document);
+    }
+
+    protected KbDocument retryDocumentById(Long id) {
+        KbDocument document = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        Path storedPath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(storedPath)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原始文档文件不存在，请重新上传");
+        }
+        document.setProcessStatus("等待入库");
+        document.setErrorMessage(null);
+        KbDocument saved = documentRepository.save(document);
+        ingestAsync(List.of(saved));
+        return saved;
+    }
+
+    protected KbDocument updatePageOffsetAndRetry(Long id, Integer pageOffset) {
+        KbDocument document = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        document.setPageOffset(pageOffset);
+        documentRepository.save(document);
+        return retryDocumentById(id);
     }
 
     private void deleteDocument(KbDocument document) {
@@ -129,13 +162,60 @@ public class DocumentController {
             }
         }
         documentRepository.delete(document);
+        deleteVectorsAsync(document.getId());
+    }
 
-        List<KbDocument> activeDocuments = documentRepository.findAll()
-                .stream()
-                .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
+    private void ingestAsync(List<KbDocument> affectedDocuments) {
+        ingestExecutor.submit(() -> {
+            List<KbDocument> documentsToUpdate = reloadDocuments(affectedDocuments);
+            try {
+                updateDocumentsStatus(documentsToUpdate, "正在入库", null);
+                for (KbDocument document : documentsToUpdate) {
+                    Path filePath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
+                    ragClient.ingest(filePath, document.getId(), document.getUploadedBy(), true, document.getPageOffset());
+                }
+                updateDocumentsStatus(documentsToUpdate, "已完成", null);
+            } catch (Exception e) {
+                updateDocumentsStatus(documentsToUpdate, "处理失败", e.getMessage());
+            }
+        });
+    }
+
+    private void deleteVectorsAsync(Long documentId) {
+        ingestExecutor.submit(() -> {
+            try {
+                ragClient.deleteDocument(documentId);
+            } catch (Exception e) {
+                System.err.println("Failed to delete RAG vectors for document " + documentId + ": " + e.getMessage());
+            }
+        });
+    }
+
+    private List<KbDocument> reloadDocuments(List<KbDocument> documents) {
+        return documents.stream()
+                .map(KbDocument::getId)
+                .flatMap(id -> documentRepository.findById(id).stream())
                 .toList();
+    }
 
-        ragClient.rebuild(activeDocuments, uploadDir);
+    private void updateDocumentsStatus(List<KbDocument> documents, String status, String errorMessage) {
+        documents.forEach(document -> {
+            document.setProcessStatus(status);
+            document.setErrorMessage(summarizeDiagnostic(errorMessage));
+            documentRepository.save(document);
+        });
+    }
+
+    private String summarizeDiagnostic(String message) {
+        if (message == null || message.length() <= 900) {
+            return message;
+        }
+        return message.substring(0, 897) + "...";
+    }
+
+    @PreDestroy
+    public void shutdownIngestExecutor() {
+        ingestExecutor.shutdown();
     }
 
     private String storedName(Long userId, String role, String originalName) {
