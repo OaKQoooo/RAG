@@ -3,6 +3,7 @@ package com.example.damrag.controller;
 import com.example.damrag.dto.ActivityDtos.ActivityView;
 import com.example.damrag.dto.AuthDtos.UserView;
 import com.example.damrag.dto.DocumentDtos.StatusRequest;
+import com.example.damrag.dto.DocumentDtos.PageOffsetRequest;
 import com.example.damrag.model.AdminActivity;
 import com.example.damrag.model.KbDocument;
 import com.example.damrag.model.User;
@@ -121,6 +122,29 @@ public class AdminController {
                 admin,
                 "document_retry",
                 "重新提交文档《" + document.getFileName() + "》入库",
+                "document",
+                id
+        );
+        return document;
+    }
+
+    @PatchMapping("/documents/{id}/page-offset")
+    public KbDocument updatePageOffset(
+            @RequestHeader(value = "Authorization", required = false) String token,
+            @PathVariable Long id,
+            @RequestBody PageOffsetRequest request
+    ) {
+        User admin = requireAdmin(token);
+        if (request == null || request.pdfPage() == null || request.documentPage() == null
+                || request.pdfPage() <= 0 || request.documentPage() <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PDF page and document page must be positive integers");
+        }
+        int pageOffset = request.pdfPage() - request.documentPage();
+        KbDocument document = documentController.updatePageOffsetAndRetry(id, pageOffset);
+        logActivity(
+                admin,
+                "document_page_offset",
+                "Update document page offset for " + document.getFileName() + ": " + pageOffset,
                 "document",
                 id
         );

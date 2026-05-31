@@ -452,6 +452,7 @@ function renderEvidence(references = []) {
   const imageUrl = referenceImageUrl(ref);
   const sourceName = displaySourceName(ref.sourceFile || ref.source_file || ref.standardName);
   const clauseId = ref.clauseId || ref.clause_id || '';
+  const documentPage = ref.documentPage || ref.document_page || ref.page || '-';
   const contentPreview = ref.contentPreview || ref.content_preview || '';
   const preview = imageUrl
     ? `<img class="evidence-image" src="${escapeHtml(imageUrl)}" alt="原文${activeEvidenceIndex + 1}截图">`
@@ -461,7 +462,7 @@ function renderEvidence(references = []) {
     <article class="evidence-card">
       <div class="evidence-page ${references.length > 1 ? 'clickable' : ''}" ${references.length > 1 ? 'title="点击查看下一条原文"' : ''}>${preview}</div>
       <div class="evidence-info">
-        <p class="evidence-source">原文${activeEvidenceIndex + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(ref.page)} ｜ 条款：${escapeHtml(clauseId)}</p>
+        <p class="evidence-source">原文${activeEvidenceIndex + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(documentPage)} ｜ 条款：${escapeHtml(clauseId)}</p>
         ${contentPreview ? `<p class="evidence-snippet">${escapeHtml(contentPreview)}</p>` : ''}
       </div>
       <div class="evidence-nav">
@@ -649,9 +650,12 @@ function buildWordDocument(title, summaryRows, detailRows) {
 
 function referencesSummary(references = []) {
   return references
-    .map((ref) => [ref.sourceFile || ref.standardName || '', ref.clauseId || '', ref.page ? `P${ref.page}` : '']
-      .filter(Boolean)
-      .join(' '))
+    .map((ref) => {
+      const page = ref.documentPage || ref.document_page || ref.page;
+      return [ref.sourceFile || ref.standardName || '', ref.clauseId || '', page ? `P${page}` : '']
+        .filter(Boolean)
+        .join(' ');
+    })
     .filter(Boolean)
     .join('；');
 }

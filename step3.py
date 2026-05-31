@@ -108,6 +108,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
 
             clause_id = str(item.get("id", "N/A"))
             page = int(item.get("page", 1))
+            document_page = str(item.get("document_page") or "")
             bbox_json = item.get("bbox_json") or json.dumps(item.get("final_bbox", []), ensure_ascii=False)
             bbox = bbox_json[:1000]
 
@@ -153,6 +154,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
                             "chunk_index": idx,
                             "node_type": item.get("type", "L3"),
                             "page": page,
+                            "document_page": document_page,
                             "bbox": bbox,
                             "bbox_json": bbox,
                             "page_width": item.get("page_width") or 0,

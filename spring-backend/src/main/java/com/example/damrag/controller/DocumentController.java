@@ -142,6 +142,14 @@ public class DocumentController {
         return saved;
     }
 
+    protected KbDocument updatePageOffsetAndRetry(Long id, Integer pageOffset) {
+        KbDocument document = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+        document.setPageOffset(pageOffset);
+        documentRepository.save(document);
+        return retryDocumentById(id);
+    }
+
     private void deleteDocument(KbDocument document) {
         if (document.getStoredName() != null && !document.getStoredName().isBlank()) {
             Path storedPath = uploadDir.resolve(document.getStoredName()).normalize();
@@ -164,7 +172,7 @@ public class DocumentController {
                 updateDocumentsStatus(documentsToUpdate, "正在入库", null);
                 for (KbDocument document : documentsToUpdate) {
                     Path filePath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
-                    ragClient.ingest(filePath, document.getId(), document.getUploadedBy(), true);
+                    ragClient.ingest(filePath, document.getId(), document.getUploadedBy(), true, document.getPageOffset());
                 }
                 updateDocumentsStatus(documentsToUpdate, "已完成", null);
             } catch (Exception e) {

@@ -82,6 +82,7 @@ public class RagClient implements RagGateway {
                         ref.clause_id(),
                         ref.chapter(),
                         ref.page(),
+                        ref.document_page(),
                         ref.bbox_json(),
                         absoluteSnapshotUrl(ref.image_url()),
                         ref.content_preview(),
@@ -95,14 +96,14 @@ public class RagClient implements RagGateway {
         return new ChatResponse(conversationId, ragResponse.answer(), references, suggestions);
     }
 
-    public IngestResponse ingest(Path filePath, Long documentId, Long uploadedBy, boolean append) {
+    public IngestResponse ingest(Path filePath, Long documentId, Long uploadedBy, boolean append, Integer pageOffset) {
         try {
             String boundary = "DamRagBoundary-" + UUID.randomUUID();
             HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/documents/ingest"))
                     .version(HttpClient.Version.HTTP_1_1)
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                     .header("Accept", MediaType.APPLICATION_JSON_VALUE)
-                    .POST(multipartBody(filePath, documentId, uploadedBy, append, boundary))
+                    .POST(multipartBody(filePath, documentId, uploadedBy, append, pageOffset, boundary))
                     .build();
 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -129,7 +130,8 @@ public class RagClient implements RagGateway {
                 .map(doc -> new RebuildDocument(
                         String.valueOf(doc.getId()),
                         doc.getUploadedBy() == null ? "" : String.valueOf(doc.getUploadedBy()),
-                        uploadDir.resolve(doc.getStoredName()).toAbsolutePath().normalize().toString()
+                        uploadDir.resolve(doc.getStoredName()).toAbsolutePath().normalize().toString(),
+                        doc.getPageOffset()
                 ))
                 .toList();
 
@@ -181,12 +183,16 @@ public class RagClient implements RagGateway {
             Long documentId,
             Long uploadedBy,
             boolean append,
+            Integer pageOffset,
             String boundary
     ) throws IOException {
         List<byte[]> parts = new ArrayList<>();
         addFormField(parts, boundary, "document_id", documentId == null ? "" : String.valueOf(documentId));
         addFormField(parts, boundary, "uploaded_by", uploadedBy == null ? "" : String.valueOf(uploadedBy));
         addFormField(parts, boundary, "append", String.valueOf(append));
+        if (pageOffset != null) {
+            addFormField(parts, boundary, "page_offset", String.valueOf(pageOffset));
+        }
         addFileField(parts, boundary, "file", filePath);
         parts.add(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         return HttpRequest.BodyPublishers.ofByteArrays(parts);

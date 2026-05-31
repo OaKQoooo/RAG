@@ -29,6 +29,9 @@ public class MessageReference {
 
     private Integer page;
 
+    @Column(name = "document_page", length = 50)
+    private String documentPage;
+
     @Lob
     @Column(name = "bbox_json")
     private String bboxJson;
@@ -68,6 +71,8 @@ public class MessageReference {
     public void setChapter(String chapter) { this.chapter = chapter; }
     public Integer getPage() { return page; }
     public void setPage(Integer page) { this.page = page; }
+    public String getDocumentPage() { return documentPage; }
+    public void setDocumentPage(String documentPage) { this.documentPage = documentPage; }
     public String getBboxJson() { return bboxJson; }
     public void setBboxJson(String bboxJson) { this.bboxJson = bboxJson; }
     public String getImageUrl() { return imageUrl; }

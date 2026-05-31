@@ -16,10 +16,13 @@ public class DocumentDtos {
     public record RebuildDocument(
             @JsonProperty("document_id") String documentId,
             @JsonProperty("uploaded_by") String uploadedBy,
-            @JsonProperty("file_path") String filePath
+            @JsonProperty("file_path") String filePath,
+            @JsonProperty("page_offset") Integer pageOffset
     ) {}
 
     public record RebuildRequest(List<RebuildDocument> documents) {}
 
     public record StatusRequest(Integer status) {}
+
+    public record PageOffsetRequest(Integer pdfPage, Integer documentPage) {}
 }

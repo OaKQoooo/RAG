@@ -89,6 +89,7 @@ def parse_step1_json(path: Path) -> list[dict]:
             break
             
         p_num = int(page["page"])
+        document_page = page.get("document_page")
         page_width = page.get("page_width")
         page_height = page.get("page_height")
 
@@ -150,6 +151,7 @@ def parse_step1_json(path: Path) -> list[dict]:
                         "id": num,
                         "content": rest,
                         "page": p_num,
+                        "document_page": document_page,
                         "page_width": page_width,
                         "page_height": page_height,
                         "bboxes": [el["bbox"]],

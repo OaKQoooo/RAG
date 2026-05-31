@@ -171,6 +171,44 @@ function createRetryButton(documentId) {
   return button;
 }
 
+function createPageOffsetButton(doc) {
+  const button = document.createElement('button');
+  button.className = 'soft-btn action-btn';
+  button.type = 'button';
+  button.textContent = '页码校正';
+  button.title = doc.pageOffset === null || doc.pageOffset === undefined
+    ? '设置文档印刷页码与 PDF 页码的对应关系'
+    : `当前页码偏移量：${doc.pageOffset}`;
+  button.addEventListener('click', async () => {
+    const pdfPage = Number(window.prompt('请输入 PDF 阅读器显示的页码，例如 13：'));
+    if (!Number.isInteger(pdfPage) || pdfPage <= 0) {
+      alert('PDF 页码必须是大于 0 的整数');
+      return;
+    }
+    const documentPage = Number(window.prompt('请输入该页在文档中印刷的页码，例如 5：'));
+    if (!Number.isInteger(documentPage) || documentPage <= 0) {
+      alert('文档页码必须是大于 0 的整数');
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      await requestJson(`/admin/documents/${doc.id}/page-offset`, {
+        method: 'PATCH',
+        body: JSON.stringify({ pdfPage, documentPage })
+      });
+      await loadDocuments();
+      await loadActivities();
+      alert('页码校正已保存，文档正在重新入库');
+    } catch (error) {
+      alert(`页码校正失败：${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
 async function deleteAdminDocument(documentId, fileName) {
   const confirmed = window.confirm(
     `确认删除文档《${fileName}》吗？\n\n删除后系统会同步移除该文档对应的向量数据。`
@@ -214,6 +252,7 @@ function renderAdminUploadList(documents = []) {
     if (String(doc.processStatus || '').includes('失败')) {
       actions.appendChild(createRetryButton(doc.id));
     }
+    actions.appendChild(createPageOffsetButton(doc));
     actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
     row.appendChild(actions);
     adminUploadList.appendChild(row);
@@ -286,6 +325,7 @@ function renderAdminDocumentTable(rows = []) {
     if (String(doc.processStatus || '').includes('失败')) {
       actions.appendChild(createRetryButton(doc.id));
     }
+    actions.appendChild(createPageOffsetButton(doc));
     actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
     actionCell.appendChild(actions);
     tr.append(actionCell);
@@ -554,7 +594,8 @@ function renderRagDebugResults(results = []) {
         <span>${escapeHtml(debugMetaValue(metadata, 'clause_id'))}</span>
       </div>
       <div class="rag-debug-meta">
-        <span>page: ${escapeHtml(debugMetaValue(metadata, 'page'))}</span>
+        <span>document_page: ${escapeHtml(debugMetaValue(metadata, 'document_page'))}</span>
+        <span>pdf_page: ${escapeHtml(debugMetaValue(metadata, 'page'))}</span>
         <span>document_id: ${escapeHtml(debugMetaValue(metadata, 'document_id'))}</span>
         <span>chunk: ${escapeHtml(debugMetaValue(metadata, 'chunk_index'))}</span>
       </div>
