@@ -225,6 +225,7 @@ document.querySelectorAll('.nav-item').forEach((item) => {
       const adminTitles = {
         overview: '平台总览',
         library: '文档库管理',
+        operations: 'RAG 运维',
         users: '用户管理'
       };
       adminTitle.textContent = adminTitles[view] || adminTitle.textContent;

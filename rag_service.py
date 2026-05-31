@@ -9,16 +9,18 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn, Optional, Sequence
 
+import chromadb
 import fitz
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from langchain_classic.retrievers import ContextualCompressionRetriever
 from langchain_classic.retrievers.document_compressors.base import BaseDocumentCompressor
 from langchain_community.chat_models import ChatTongyi
 from langchain_community.embeddings import DashScopeEmbeddings
@@ -33,7 +35,7 @@ from rag_config import STEP1_OUTPUT_DIR
 
 import step2
 import step3
-from check_ingest_quality import build_quality_report
+from check_ingest_quality import build_quality_report, build_quality_report_for_data
 from rag_config import (
     CHAT_MODEL,
     CHROMA_DIR,
@@ -52,6 +54,14 @@ from step1 import process_single_pdf
 INITIAL_RETRIEVAL_K = 15
 RERANK_TOP_N = 5
 RERANK_THRESHOLD = 0.05
+MAX_DUPLICATE_CLAUSE_IDS = int(os.getenv("RAG_MAX_DUPLICATE_CLAUSE_IDS", "20"))
+_rag_lock = threading.RLock()
+_last_operation: dict[str, Any] = {
+    "action": "startup",
+    "status": "idle",
+    "message": "服务已启动，尚未执行写操作。",
+    "updated_at": None,
+}
 
 
 def _classify_rag_error(exc: Exception) -> tuple[str, str, int]:
@@ -80,6 +90,17 @@ def _raise_rag_http_error(exc: Exception) -> NoReturn:
             "detail": str(exc),
         },
     ) from exc
+
+
+def _record_operation(action: str, status: str, message: str, **details: Any) -> None:
+    global _last_operation
+    _last_operation = {
+        "action": action,
+        "status": status,
+        "message": message,
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        **details,
+    }
 
 
 SYSTEM_PROMPT = (
@@ -321,19 +342,12 @@ class RagEngine:
         if not CHROMA_DIR.exists():
             raise RuntimeError(f"Chroma 向量库不存在，请先上传并入库文档：{CHROMA_DIR}")
 
-        vector_store = Chroma(
+        self.vector_store = Chroma(
             collection_name=MILVUS_COLLECTION,
             embedding_function=embeddings,
             persist_directory=str(CHROMA_DIR),
         )
-        base_retriever = vector_store.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": INITIAL_RETRIEVAL_K},
-        )
-        self.retriever = ContextualCompressionRetriever(
-            base_compressor=DashScopeReranker(api_key=DASHSCOPE_API_KEY),
-            base_retriever=base_retriever,
-        )
+        self.reranker = DashScopeReranker(api_key=DASHSCOPE_API_KEY)
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SYSTEM_PROMPT),
@@ -418,7 +432,8 @@ class RagEngine:
             return fallback_suggestions(refs)
 
     def ask(self, request: ChatRequest) -> ChatResponse:
-        docs = self._filter_documents(self.retriever.invoke(request.question), request)[: request.top_k]
+        with _rag_lock:
+            docs = self._retrieve_documents(request)[: request.top_k]
         if not docs:
             suggestions = fallback_suggestions([]) if request.enable_suggestions else []
             return ChatResponse(
@@ -444,7 +459,8 @@ class RagEngine:
         return ChatResponse(answer=answer, references=refs, suggestions=suggestions)
 
     def debug_search(self, request: DebugSearchRequest) -> list[dict[str, Any]]:
-        docs = self._filter_documents(self.retriever.invoke(request.question), request)
+        with _rag_lock:
+            docs = self._retrieve_documents(request)
         return [
             {
                 "rank": idx + 1,
@@ -454,12 +470,30 @@ class RagEngine:
             for idx, doc in enumerate(docs[: request.top_k])
         ]
 
-    def _filter_documents(self, docs: list[Document], request: ChatRequest | DebugSearchRequest) -> list[Document]:
+    def _retrieve_documents(self, request: ChatRequest | DebugSearchRequest) -> list[Document]:
+        search_filter = None
+        allowed_ids: set[str] = set()
+        if request.restrict_documents:
+            allowed_ids = {str(item) for item in request.document_ids if item is not None}
+            if not allowed_ids:
+                return []
+            search_filter = (
+                {"document_id": next(iter(allowed_ids))}
+                if len(allowed_ids) == 1
+                else {"document_id": {"$in": sorted(allowed_ids)}}
+            )
+
+        docs = self.vector_store.similarity_search(
+            request.question,
+            k=INITIAL_RETRIEVAL_K,
+            filter=search_filter,
+        )
+        docs = self.reranker.compress_documents(docs, request.question)
         if not request.restrict_documents:
             return docs
+
+        # Keep a defensive check even though Chroma already applies the filter.
         allowed_ids = {str(item) for item in request.document_ids if item is not None}
-        if not allowed_ids:
-            return []
         return [
             doc
             for doc in docs
@@ -510,9 +544,10 @@ _engine: Optional[RagEngine] = None
 
 def get_engine() -> RagEngine:
     global _engine
-    if _engine is None:
-        _engine = RagEngine()
-    return _engine
+    with _rag_lock:
+        if _engine is None:
+            _engine = RagEngine()
+        return _engine
 
 
 def _read_structured_dataset() -> list[dict]:
@@ -525,35 +560,60 @@ def _read_structured_dataset() -> list[dict]:
 
 def _write_structured_dataset(items: list[dict]) -> None:
     FINAL_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with FINAL_JSON_PATH.open("w", encoding="utf-8") as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="rag-dataset-",
+            dir=str(FINAL_JSON_PATH.parent),
+            encoding="utf-8",
+            delete=False,
+        ) as temp_file:
+            json.dump(items, temp_file, ensure_ascii=False, indent=2)
+            temp_path = Path(temp_file.name)
+        os.replace(temp_path, FINAL_JSON_PATH)
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
-def _replace_structured_document(document_id: str, items: list[dict]) -> None:
-    remaining = [
+def _without_structured_document(items: list[dict], document_id: str) -> list[dict]:
+    return [
         item
-        for item in _read_structured_dataset()
+        for item in items
         if str(item.get("document_id") or "") != str(document_id)
     ]
-    _write_structured_dataset([*remaining, *items])
 
 
-def _delete_structured_document(document_id: str) -> None:
-    removed = [
+def _structured_document(items: list[dict], document_id: str) -> list[dict]:
+    return [
         item
-        for item in _read_structured_dataset()
+        for item in items
         if str(item.get("document_id") or "") == str(document_id)
     ]
-    remaining = [
-        item
-        for item in _read_structured_dataset()
-        if str(item.get("document_id") or "") != str(document_id)
-    ]
-    _write_structured_dataset(remaining)
-    for item in removed:
+
+
+def _delete_pdf_sources(items: list[dict]) -> None:
+    for item in items:
         source_path = Path(str(item.get("source_path") or "")).resolve()
         if source_path.is_file() and source_path.parent == PDF_DIR.resolve():
             source_path.unlink(missing_ok=True)
+
+
+def _validate_structured_document(document_id: str, items: list[dict], previous_dataset: list[dict]) -> dict[str, Any]:
+    document_report = build_quality_report_for_data(items)
+    clause_count = document_report["total_clauses"]
+    duplicate_count = document_report["duplicate_within_document_count"]
+    if clause_count == 0:
+        raise ValueError(f"文档 {document_id} 未解析出任何条款，已拒绝覆盖原向量")
+    if duplicate_count > MAX_DUPLICATE_CLAUSE_IDS:
+        raise ValueError(
+            f"文档 {document_id} 存在 {duplicate_count} 组重复条款编号，"
+            f"超过允许阈值 {MAX_DUPLICATE_CLAUSE_IDS}，已拒绝入库"
+        )
+    candidate_dataset = [*_without_structured_document(previous_dataset, document_id), *items]
+    return build_quality_report_for_data(candidate_dataset, FINAL_JSON_PATH)
 
 
 def _replace_document_vectors(document_id: str, structured_items: list[dict]) -> int:
@@ -575,17 +635,97 @@ def _replace_document_vectors(document_id: str, structured_items: list[dict]) ->
             temp_path.unlink(missing_ok=True)
 
 
-@app.get("/health")
-def health():
+def _structured_document_ids(items: list[dict]) -> set[str]:
     return {
-        "status": "ok",
+        str(item.get("document_id"))
+        for item in items
+        if item.get("document_id") is not None
+    }
+
+
+def _vector_store_status() -> dict[str, Any]:
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    try:
+        collection = client.get_collection(MILVUS_COLLECTION)
+    except Exception:
+        return {
+            "collection_exists": False,
+            "actual_chunks": 0,
+            "document_ids": [],
+        }
+
+    payload = collection.get(include=["metadatas"])
+    metadata = payload.get("metadatas") or []
+    document_ids = sorted({
+        str(item.get("document_id"))
+        for item in metadata
+        if item and item.get("document_id") not in (None, "")
+    })
+    return {
+        "collection_exists": True,
+        "actual_chunks": collection.count(),
+        "document_ids": document_ids,
+    }
+
+
+def _build_operational_status() -> dict[str, Any]:
+    warnings = []
+    items = _read_structured_dataset()
+    quality = build_quality_report_for_data(items, FINAL_JSON_PATH)
+    structured_ids = _structured_document_ids(items)
+    expected_chunks = len(step3.load_documents(FINAL_JSON_PATH)) if FINAL_JSON_PATH.exists() else 0
+
+    vector_status = _vector_store_status()
+    vector_ids = set(vector_status["document_ids"])
+    actual_chunks = vector_status["actual_chunks"]
+    orphan_vector_ids = sorted(vector_ids - structured_ids)
+    missing_vector_ids = sorted(structured_ids - vector_ids)
+
+    if not DASHSCOPE_API_KEY:
+        warnings.append("未配置 DashScope API Key")
+    if not vector_status["collection_exists"]:
+        warnings.append("Chroma 集合尚未创建")
+    if expected_chunks != actual_chunks:
+        warnings.append(f"向量块数量不一致：预期 {expected_chunks}，实际 {actual_chunks}")
+    if orphan_vector_ids:
+        warnings.append(f"存在 {len(orphan_vector_ids)} 个残留向量文档")
+    if missing_vector_ids:
+        warnings.append(f"存在 {len(missing_vector_ids)} 个缺失向量文档")
+
+    return {
+        "status": "ok" if not warnings else "warning",
+        "service": "Dam Standard RAG Service",
         "vector_store": "chroma",
         "collection": MILVUS_COLLECTION,
-        "pdf_dir": str(PDF_DIR),
-        "chroma_dir": str(CHROMA_DIR),
-        "chroma_exists": CHROMA_DIR.exists(),
         "dashscope_configured": bool(DASHSCOPE_API_KEY),
+        "structured_clauses": quality["total_clauses"],
+        "structured_documents": len(structured_ids),
+        "expected_chunks": expected_chunks,
+        "actual_chunks": actual_chunks,
+        "consistent": expected_chunks == actual_chunks and not orphan_vector_ids and not missing_vector_ids,
+        "orphan_vector_document_ids": orphan_vector_ids,
+        "missing_vector_document_ids": missing_vector_ids,
+        "warnings": warnings,
+        "last_operation": _last_operation,
     }
+
+
+@app.get("/health")
+def health():
+    try:
+        with _rag_lock:
+            return _build_operational_status()
+    except Exception as exc:
+        return {
+            "status": "error",
+            "service": "Dam Standard RAG Service",
+            "vector_store": "chroma",
+            "collection": MILVUS_COLLECTION,
+            "dashscope_configured": bool(DASHSCOPE_API_KEY),
+            "consistent": False,
+            "warnings": [str(exc)],
+            "last_operation": _last_operation,
+        }
 
 
 @app.get("/")
@@ -601,7 +741,8 @@ def root():
 @app.get("/api/rag/quality")
 def quality_report():
     try:
-        return build_quality_report()
+        with _rag_lock:
+            return build_quality_report()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
@@ -634,33 +775,50 @@ def ingest_document(
     uploaded_by: Optional[str] = Form(default=None),
     append: bool = Form(default=False),
 ):
-    if not file.filename.lower().endswith(".pdf"):
+    file_name = Path(file.filename or "").name
+    if not file_name.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
-
-    dest = PDF_DIR / file.filename
-    with open(dest, "wb") as out:
-        shutil.copyfileobj(file.file, out)
 
     try:
         global _engine
-        _engine = None
-        gc.collect()
         if not document_id:
             raise ValueError("document_id is required for incremental ingest")
-        step1_path = process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
-        structured_items = step2.parse_step1_json(Path(step1_path))
-        _replace_structured_document(document_id, structured_items)
-        chunks = _replace_document_vectors(document_id, structured_items)
-        quality_report = build_quality_report()
-        _engine = None
+        with _rag_lock:
+            _record_operation("ingest", "running", f"正在入库文档 {document_id}", document_id=document_id)
+            _engine = None
+            gc.collect()
+            dest = PDF_DIR / file_name
+            with open(dest, "wb") as out:
+                shutil.copyfileobj(file.file, out)
+
+            previous_dataset = _read_structured_dataset()
+            step1_path = process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
+            structured_items = step2.parse_step1_json(Path(step1_path))
+            quality_report = _validate_structured_document(document_id, structured_items, previous_dataset)
+            candidate_dataset = [*_without_structured_document(previous_dataset, document_id), *structured_items]
+            _write_structured_dataset(candidate_dataset)
+            try:
+                chunks = _replace_document_vectors(document_id, structured_items)
+            except Exception:
+                _write_structured_dataset(previous_dataset)
+                raise
+            _engine = None
+            _record_operation(
+                "ingest",
+                "completed",
+                f"文档 {document_id} 入库完成",
+                document_id=document_id,
+                chunks=chunks,
+            )
         return IngestResponse(
-            file_name=file.filename,
+            file_name=file_name,
             document_id=document_id,
             chunks=chunks,
             status="completed",
             quality_report=quality_report,
         )
     except Exception as exc:
+        _record_operation("ingest", "failed", str(exc), document_id=document_id)
         traceback.print_exc()
         _raise_rag_http_error(exc)
 
@@ -669,12 +827,30 @@ def ingest_document(
 def delete_document(document_id: str):
     global _engine
     try:
-        _engine = None
-        gc.collect()
-        deleted_chunks = step3.delete_document(document_id)
-        _delete_structured_document(document_id)
-        quality_report = build_quality_report()
-        _engine = None
+        with _rag_lock:
+            _record_operation("delete", "running", f"正在删除文档 {document_id}", document_id=document_id)
+            _engine = None
+            gc.collect()
+            previous_dataset = _read_structured_dataset()
+            removed_items = _structured_document(previous_dataset, document_id)
+            remaining_items = _without_structured_document(previous_dataset, document_id)
+            deleted_chunks = step3.delete_document(document_id)
+            try:
+                _write_structured_dataset(remaining_items)
+            except Exception:
+                if removed_items:
+                    _replace_document_vectors(document_id, removed_items)
+                raise
+            _delete_pdf_sources(removed_items)
+            quality_report = build_quality_report_for_data(remaining_items, FINAL_JSON_PATH)
+            _engine = None
+            _record_operation(
+                "delete",
+                "completed",
+                f"文档 {document_id} 已删除",
+                document_id=document_id,
+                deleted_chunks=deleted_chunks,
+            )
         return DeleteDocumentResponse(
             document_id=document_id,
             deleted_chunks=deleted_chunks,
@@ -682,6 +858,7 @@ def delete_document(document_id: str):
             quality_report=quality_report,
         )
     except Exception as exc:
+        _record_operation("delete", "failed", str(exc), document_id=document_id)
         traceback.print_exc()
         _raise_rag_http_error(exc)
 
@@ -689,30 +866,55 @@ def delete_document(document_id: str):
 @app.post("/api/rag/documents/rebuild", response_model=IngestResponse)
 def rebuild_documents(request: RebuildRequest):
     global _engine
+    structured_temp_path: Optional[Path] = None
     try:
-        _engine = None
-        gc.collect()
+        with _rag_lock:
+            _record_operation("rebuild", "running", "正在全量重建知识库")
+            _engine = None
+            gc.collect()
 
-        if STEP1_OUTPUT_DIR.exists():
-            shutil.rmtree(STEP1_OUTPUT_DIR)
-        STEP1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            if STEP1_OUTPUT_DIR.exists():
+                shutil.rmtree(STEP1_OUTPUT_DIR)
+            STEP1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        for doc in request.documents:
-            pdf_path = Path(doc.file_path)
-            if not pdf_path.exists():
-                raise FileNotFoundError(f"PDF not found: {pdf_path}")
-            process_single_pdf(
-                pdf_path,
-                output_folder=STEP1_OUTPUT_DIR,
-                document_id=doc.document_id,
-                uploaded_by=doc.uploaded_by,
+            for doc in request.documents:
+                pdf_path = Path(doc.file_path)
+                if not pdf_path.exists():
+                    raise FileNotFoundError(f"PDF not found: {pdf_path}")
+                process_single_pdf(
+                    pdf_path,
+                    output_folder=STEP1_OUTPUT_DIR,
+                    document_id=doc.document_id,
+                    uploaded_by=doc.uploaded_by,
+                )
+
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".json",
+                prefix="rag-rebuild-",
+                dir=str(SNAPSHOT_DIR),
+                encoding="utf-8",
+                delete=False,
+            ) as temp_file:
+                structured_temp_path = Path(temp_file.name)
+            structured_items = step2.build_structured_dataset(
+                input_folder=STEP1_OUTPUT_DIR,
+                output_file=structured_temp_path,
             )
+            quality_report = build_quality_report_for_data(structured_items, FINAL_JSON_PATH)
+            if quality_report["total_clauses"] == 0 and request.documents:
+                raise ValueError("全量重建未解析出任何条款，已中止向量写入")
+            if quality_report["duplicate_within_document_count"] > MAX_DUPLICATE_CLAUSE_IDS:
+                raise ValueError(
+                    "全量重建发现 "
+                    f"{quality_report['duplicate_within_document_count']} 组同文档重复条款编号，"
+                    f"超过允许阈值 {MAX_DUPLICATE_CLAUSE_IDS}，已中止向量写入"
+                )
+            chunks = step3.ingest(json_path=structured_temp_path, drop_old=True)
+            _write_structured_dataset(structured_items)
 
-        step2.build_structured_dataset(input_folder=STEP1_OUTPUT_DIR)
-        chunks = step3.ingest(drop_old=True)
-        quality_report = build_quality_report()
-
-        _engine = None
+            _engine = None
+            _record_operation("rebuild", "completed", "知识库全量重建完成", chunks=chunks)
         return IngestResponse(
             file_name="rebuild",
             document_id=None,
@@ -721,5 +923,9 @@ def rebuild_documents(request: RebuildRequest):
             quality_report=quality_report,
         )
     except Exception as exc:
+        _record_operation("rebuild", "failed", str(exc))
         traceback.print_exc()
         _raise_rag_http_error(exc)
+    finally:
+        if structured_temp_path:
+            structured_temp_path.unlink(missing_ok=True)

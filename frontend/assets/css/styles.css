@@ -1270,6 +1270,7 @@ select {
   min-width: 980px;
 }
 
+.rag-ops-panel,
 .rag-quality-panel {
   grid-column: 1 / -1;
   width: 100%;
@@ -1280,6 +1281,28 @@ select {
   border-radius: 24px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78));
+}
+
+.rag-ops-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ops-message-list,
+.ops-last-operation {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ops-message-list span {
+  display: block;
 }
 
 .quality-metrics {
@@ -2036,6 +2059,7 @@ select {
   .rag-debug-actions {
     min-width: 0;
   }
+
 }
 
 :root[data-theme="dark"] body {

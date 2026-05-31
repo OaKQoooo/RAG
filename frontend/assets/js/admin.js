@@ -17,6 +17,12 @@ const ragQualityDuplicates = document.getElementById('rag-quality-duplicates');
 const ragQualityCrossDocument = document.getElementById('rag-quality-cross-document');
 const ragQualityLongTexts = document.getElementById('rag-quality-long-texts');
 const ragQualityStatus = document.getElementById('rag-quality-status');
+const ragOpsRefresh = document.getElementById('rag-ops-refresh');
+const ragOpsState = document.getElementById('rag-ops-state');
+const ragOpsUpdated = document.getElementById('rag-ops-updated');
+const ragOpsMetrics = document.getElementById('rag-ops-metrics');
+const ragOpsWarnings = document.getElementById('rag-ops-warnings');
+const ragOpsLastOperation = document.getElementById('rag-ops-last-operation');
 let adminDocumentRows = [];
 let adminUserRows = [];
 let adminDocumentPollTimer = null;
@@ -31,6 +37,7 @@ if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
 const adminTitles = {
   overview: '平台总览',
   library: '文档库管理',
+  operations: 'RAG 运维',
   users: '用户管理'
 };
 
@@ -39,6 +46,10 @@ adminNavButtons.forEach((button) => {
     const target = button.dataset.view;
     if (adminTitle && adminTitles[target]) {
       adminTitle.textContent = adminTitles[target];
+    }
+    if (target === 'operations') {
+      loadOperationalStatus();
+      loadQualityReport();
     }
   });
 });
@@ -340,6 +351,67 @@ function qualityMetric(label, value, tone = '') {
       <span>${escapeHtml(label)}</span>
     </div>
   `;
+}
+
+function renderOperationalStatus(report = {}) {
+  const stateMap = {
+    ok: ['正常', 'success'],
+    warning: ['注意', 'processing'],
+    error: ['异常', 'danger']
+  };
+  const [stateText, stateClass] = stateMap[report.status] || stateMap.error;
+  if (ragOpsState) {
+    ragOpsState.textContent = stateText;
+    ragOpsState.className = `status-badge ${stateClass}`;
+  }
+  if (ragOpsUpdated) {
+    ragOpsUpdated.textContent = `最近检查：${new Date().toLocaleString('zh-CN')}`;
+  }
+  if (ragOpsMetrics) {
+    ragOpsMetrics.innerHTML = [
+      qualityMetric('结构化文档', report.structured_documents ?? '-'),
+      qualityMetric('结构化条款', report.structured_clauses ?? '-'),
+      qualityMetric('预期向量块', report.expected_chunks ?? '-'),
+      qualityMetric('实际向量块', report.actual_chunks ?? '-', report.consistent === false ? 'danger' : ''),
+      qualityMetric('模型配置', report.dashscope_configured ? '已配置' : '未配置', report.dashscope_configured ? '' : 'danger'),
+      qualityMetric('数据一致性', report.consistent ? '一致' : '需检查', report.consistent ? '' : 'danger')
+    ].join('');
+  }
+
+  const warnings = report.warnings || [];
+  if (ragOpsWarnings) {
+    ragOpsWarnings.innerHTML = warnings.length
+      ? warnings.map((item) => `<span>${escapeHtml(item)}</span>`).join('')
+      : '<span class="quality-empty">未发现异常</span>';
+  }
+
+  const operation = report.last_operation || {};
+  if (ragOpsLastOperation) {
+    ragOpsLastOperation.innerHTML = `
+      <strong>${escapeHtml(operation.action || '-')} · ${escapeHtml(operation.status || '-')}</strong>
+      <span>${escapeHtml(operation.message || '-')}</span>
+      <span>${escapeHtml(operation.updated_at || '尚无写操作记录')}</span>
+    `;
+  }
+}
+
+async function loadOperationalStatus() {
+  if (!ragOpsMetrics) return;
+  if (ragOpsState) {
+    ragOpsState.textContent = '正在检查';
+    ragOpsState.className = 'status-badge processing';
+  }
+  try {
+    const response = await fetch(`${RAG_SERVICE_BASE}/health`);
+    if (!response.ok) throw new Error(await response.text());
+    renderOperationalStatus(await response.json());
+  } catch (error) {
+    renderOperationalStatus({
+      status: 'error',
+      consistent: false,
+      warnings: [`RAG 服务连接失败：${error.message}`]
+    });
+  }
 }
 
 function renderQualityChipList(element, items = []) {
@@ -680,6 +752,10 @@ if (ragDebugQuestion) {
 
 if (ragQualityRefresh) {
   ragQualityRefresh.addEventListener('click', loadQualityReport);
+}
+
+if (ragOpsRefresh) {
+  ragOpsRefresh.addEventListener('click', loadOperationalStatus);
 }
 
 loadOverview();

@@ -79,9 +79,7 @@ def has_bbox(node: dict) -> bool:
     return True
 
 
-def build_quality_report(json_path: Path = FINAL_JSON_PATH) -> dict[str, Any]:
-    data = load_json(json_path)
-
+def build_quality_report_for_data(data: Any, json_path: Path | None = None) -> dict[str, Any]:
     nodes: list[dict] = []
     walk_nodes(data, nodes)
 
@@ -132,7 +130,7 @@ def build_quality_report(json_path: Path = FINAL_JSON_PATH) -> dict[str, Any]:
             )
 
     return {
-        "json_path": str(json_path),
+        "json_path": str(json_path) if json_path else "",
         "total_clauses": len(nodes),
         "clause_id_count": len(clause_ids),
         "duplicate_clause_id_count": len(duplicate_within_document),
@@ -151,6 +149,10 @@ def build_quality_report(json_path: Path = FINAL_JSON_PATH) -> dict[str, Any]:
         "sample_long_texts": sorted(long_texts, key=lambda x: x["length"], reverse=True)[:10],
         "chapter_counts": dict(sorted(chapter_counter.items(), key=lambda x: x[0])),
     }
+
+
+def build_quality_report(json_path: Path = FINAL_JSON_PATH) -> dict[str, Any]:
+    return build_quality_report_for_data(load_json(json_path), json_path)
 
 
 def _documents_by_clause(nodes: list[dict]) -> dict[str, set[str]]:

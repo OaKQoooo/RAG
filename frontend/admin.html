@@ -30,6 +30,7 @@
         <nav class="nav-block">
           <button class="nav-item active" data-view="overview">总览</button>
           <button class="nav-item" data-view="library">文档库管理</button>
+          <button class="nav-item" data-view="operations">RAG 运维</button>
           <button class="nav-item" data-view="users">用户管理</button>
         </nav>
 
@@ -141,6 +142,42 @@
               </thead>
               <tbody id="admin-documents-body"></tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view-panel="operations">
+        <div class="workspace">
+          <div class="glass-panel rag-ops-panel">
+            <div class="panel-toolbar">
+              <div>
+                <h3>RAG 运维状态</h3>
+                <p>检查知识库服务、结构化数据和向量数据是否保持一致。</p>
+              </div>
+              <button id="rag-ops-refresh" class="soft-btn" type="button">刷新状态</button>
+            </div>
+
+            <div class="rag-ops-summary">
+              <span id="rag-ops-state" class="status-badge processing">正在检查</span>
+              <span id="rag-ops-updated">-</span>
+            </div>
+
+            <div class="quality-metrics" id="rag-ops-metrics">
+              <div class="empty-hint">暂无运维状态</div>
+            </div>
+
+            <div class="quality-detail-grid">
+              <div class="quality-detail-card">
+                <h4>检查结果</h4>
+                <div id="rag-ops-warnings" class="ops-message-list">
+                  <span class="quality-empty">正在加载</span>
+                </div>
+              </div>
+              <div class="quality-detail-card">
+                <h4>最近一次写操作</h4>
+                <div id="rag-ops-last-operation" class="ops-last-operation">-</div>
+              </div>
+            </div>
           </div>
 
           <div class="glass-panel rag-quality-panel">
