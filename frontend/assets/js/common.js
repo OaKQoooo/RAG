@@ -1,4 +1,9 @@
 const API_BASE = window.API_BASE || 'http://localhost:8080/api';
+const appShellForAuth = document.querySelector('.app-shell');
+
+if (appShellForAuth) {
+  document.documentElement.classList.add('auth-checking');
+}
 
 function currentUser() {
   try {
@@ -18,19 +23,35 @@ function clearSession() {
   localStorage.removeItem('dam_rag_user');
 }
 
+function redirectToLogin() {
+  window.DAM_RAG_LOGIN_REQUIRED = true;
+  clearSession();
+  window.location.replace('./index.html');
+}
+
 function authHeaders() {
   const token = localStorage.getItem('dam_rag_token') || '';
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function requireSession() {
-  if (!document.querySelector('.app-shell')) return;
+async function requireSession() {
+  if (!appShellForAuth) return currentUser();
   const token = localStorage.getItem('dam_rag_token') || '';
   const user = currentUser();
   if (!token || !user) {
-    window.DAM_RAG_LOGIN_REQUIRED = true;
-    clearSession();
-    window.location.href = './index.html';
+    redirectToLogin();
+    throw new Error('Login required');
+  }
+
+  try {
+    const verifiedUser = await requestJson('/auth/current');
+    localStorage.setItem('dam_rag_user', JSON.stringify(verifiedUser));
+    window.DAM_RAG_LOGIN_REQUIRED = false;
+    return verifiedUser;
+  } catch (error) {
+    console.warn('登录校验失败', error);
+    redirectToLogin();
+    throw error;
   }
 }
 
@@ -134,8 +155,10 @@ function renderAccountIdentity(user = currentUser()) {
   });
 }
 
-requireSession();
-renderAccountIdentity();
+window.DAM_RAG_AUTH_READY = requireSession();
+window.DAM_RAG_AUTH_READY
+  .then((user) => renderAccountIdentity(user))
+  .catch(() => {});
 
 document.querySelectorAll('.account-menu').forEach((menu) => {
   const toggle = menu.querySelector('.account-menu-toggle');

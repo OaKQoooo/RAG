@@ -8,6 +8,8 @@ import com.example.damrag.dto.AuthDtos.UserView;
 import com.example.damrag.model.User;
 import com.example.damrag.repository.UserRepository;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final SmsCodeService smsCodeService;
+    private final Map<String, Long> activeTokens = new ConcurrentHashMap<>();
 
     public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, SmsCodeService smsCodeService) {
         this.userRepository = userRepository;
@@ -93,7 +96,10 @@ public class AuthService {
     }
 
     public LogoutResult logout(String token) {
-        validateToken(token);
+        String normalizedToken = normalizeToken(token);
+        if (activeTokens.remove(normalizedToken) == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录令牌无效");
+        }
         return new LogoutResult(true, "已退出登录");
     }
 
@@ -148,23 +154,29 @@ public class AuthService {
     }
 
     private String tokenFor(User user) {
-        return "local-" + user.getId() + "-" + System.currentTimeMillis();
+        String token = "local-" + UUID.randomUUID();
+        activeTokens.put(token, user.getId());
+        return token;
     }
 
     private Long userIdFromToken(String token) {
+        String value = normalizeToken(token);
+        Long userId = activeTokens.get(value);
+        if (userId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录令牌无效");
+        }
+        return userId;
+    }
+
+    private String normalizeToken(String token) {
         String value = token == null ? "" : token.trim();
         if (value.startsWith("Bearer ")) {
             value = value.substring("Bearer ".length()).trim();
         }
-        String[] parts = value.split("-");
-        if (parts.length < 3 || !"local".equals(parts[0])) {
+        if (value.isBlank()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录令牌无效");
         }
-        try {
-            return Long.valueOf(parts[1]);
-        } catch (NumberFormatException ex) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录令牌无效");
-        }
+        return value;
     }
 
     private String normalizePhone(String phone) {

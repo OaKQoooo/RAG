@@ -6,8 +6,8 @@ const adminDocumentSearch = document.getElementById('admin-document-search');
 let adminDocumentRows = [];
 
 const loginUser = currentUser();
-if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
-  window.location.href = './index.html';
+if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !loginUser || loginUser.role !== 'admin') {
+  window.location.replace('./index.html');
   throw new Error('Login required');
 }
 
@@ -283,6 +283,20 @@ if (adminDocumentSearch) {
   adminDocumentSearch.addEventListener('input', applyDocumentSearch);
 }
 
-loadOverview();
-loadDocuments();
-loadUsers();
+function initializeAdminPage() {
+  document.documentElement.classList.remove('auth-checking');
+  loadOverview();
+  loadDocuments();
+  loadUsers();
+}
+
+(window.DAM_RAG_AUTH_READY || Promise.resolve(loginUser))
+  .then((user) => {
+    if (!user || user.role !== 'admin' || window.DAM_RAG_LOGIN_REQUIRED) {
+      clearSession();
+      window.location.replace('./index.html');
+      return;
+    }
+    initializeAdminPage();
+  })
+  .catch(() => {});

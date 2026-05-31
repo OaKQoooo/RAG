@@ -8,6 +8,7 @@ const closeEvidenceButton = document.getElementById('close-evidence-panel');
 const exportChatButton = document.getElementById('export-chat-records');
 const exportAllRecordsButton = document.getElementById('export-all-records-btn');
 const chatWorkspace = document.getElementById('chat-workspace');
+const chatPanel = document.getElementById('chat-panel');
 const chatSessionPill = document.getElementById('chat-session-pill');
 const conversationList = document.getElementById('conversation-list');
 const userUploadList = document.getElementById('user-upload-list');
@@ -52,6 +53,7 @@ const conversationManageList = document.getElementById('conversation-manage-list
 const selectAllConversationsCheckbox = document.getElementById('select-all-conversations');
 const deleteSelectedConversationsButton = document.getElementById('delete-selected-conversations-btn');
 const newChatNavButton = document.querySelector('.nav-item[data-view="chat"]');
+
 let activeConversationId = null;
 let evidenceEnabled = false;
 let latestReferences = [];
@@ -60,8 +62,8 @@ let latestProfile = null;
 let recentConversations = [];
 const selectedConversationIds = new Set();
 
-if (window.DAM_RAG_LOGIN_REQUIRED || !currentUser()) {
-  window.location.href = './index.html';
+if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !currentUser()) {
+  window.location.replace('./index.html');
   throw new Error('Login required');
 }
 
@@ -782,6 +784,35 @@ function conversationExportSummary(conversation, messages = []) {
   return `${parts.join('。')}。`;
 }
 
+function switchUserView(view, options = {}) {
+  const { activateNav = true } = options;
+  const scope = document.querySelector('.app-shell');
+  if (!scope) return;
+
+  scope.querySelectorAll('.nav-item').forEach((nav) => {
+    if (activateNav) {
+      nav.classList.toggle('active', nav.dataset.view === view);
+    } else {
+      nav.classList.remove('active');
+    }
+  });
+
+  scope.querySelectorAll('.view').forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.viewPanel === view);
+  });
+
+  const userTitle = scope.querySelector('#view-title');
+  if (userTitle) {
+    const userTitles = {
+      chat: '新建对话',
+      docs: '个人文档',
+      settings: '个人设置'
+    };
+    userTitle.textContent = userTitles[view] || userTitle.textContent;
+  }
+}
+
+
 function renderConversations(conversations = []) {
   if (!conversationList) return;
 
@@ -811,6 +842,7 @@ function renderConversations(conversations = []) {
     `;
 
     button.addEventListener('click', () => {
+      switchUserView('chat', { activateNav: false });
       loadConversationMessages(conversation.id);
     });
 
@@ -838,6 +870,7 @@ async function loadConversationMessages(conversationId) {
 
   try {
     activeConversationId = conversationId;
+    chatPanel?.classList.remove('new-chat-mode');
     latestReferences = [];
     renderSuggestions([]);
 
@@ -996,6 +1029,7 @@ async function exportChatRecords(exportAll = false) {
 
 function resetNewChatState() {
   activeConversationId = null;
+  chatPanel?.classList.add('new-chat-mode');
   latestReferences = [];
   evidenceEnabled = false;
   if (chatSessionPill) {
@@ -1113,6 +1147,7 @@ async function loadMyDocuments() {
 async function sendMessage() {
   const text = composerInput.value.trim();
   if (!text) return;
+  chatPanel?.classList.remove('new-chat-mode');
   const user = activeUser();
   appendMessage('user', text);
   const pendingMessage = appendMessage('assistant', '正在生成内容，请稍候...', '生成中');
@@ -1340,8 +1375,18 @@ if (uploadButton) {
   });
 }
 
-applyTheme(activeUser().theme || 'light');
-loadProfile();
-loadMyDocuments();
-loadConversations();
-refreshDataManagementSummary();
+function initializeUserPage() {
+  document.documentElement.classList.remove('auth-checking');
+  applyTheme(activeUser().theme || 'light');
+  loadProfile();
+  loadMyDocuments();
+  loadConversations();
+  refreshDataManagementSummary();
+}
+
+(window.DAM_RAG_AUTH_READY || Promise.resolve(currentUser()))
+  .then((user) => {
+    if (!user || window.DAM_RAG_LOGIN_REQUIRED) return;
+    initializeUserPage();
+  })
+  .catch(() => {});
