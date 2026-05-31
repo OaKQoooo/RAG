@@ -155,6 +155,26 @@ public class RagClient implements RagGateway {
         }
     }
 
+    public void deleteDocument(Long documentId) {
+        HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(serviceUrl + "/api/rag/documents/" + documentId))
+                .version(HttpClient.Version.HTTP_1_1)
+                .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                .DELETE()
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("RAG HTTP " + response.statusCode() + ": " + response.body());
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("RAG delete request failed: " + ex.getMessage(), ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RAG delete request was interrupted", ex);
+        }
+    }
+
     private HttpRequest.BodyPublisher multipartBody(
             Path filePath,
             Long documentId,

@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import tempfile
 import traceback
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -38,6 +39,7 @@ from rag_config import (
     CHROMA_DIR,
     DASHSCOPE_API_KEY,
     EMBEDDING_MODEL,
+    FINAL_JSON_PATH,
     MILVUS_COLLECTION,
     PDF_DIR,
     RERANK_MODEL,
@@ -135,6 +137,13 @@ class RebuildDocument(BaseModel):
 
 class RebuildRequest(BaseModel):
     documents: list[RebuildDocument]
+
+
+class DeleteDocumentResponse(BaseModel):
+    document_id: str
+    deleted_chunks: int
+    status: str
+    quality_report: Optional[dict[str, Any]] = None
 
 
 class DebugSearchRequest(BaseModel):
@@ -478,6 +487,66 @@ def get_engine() -> RagEngine:
     return _engine
 
 
+def _read_structured_dataset() -> list[dict]:
+    if not FINAL_JSON_PATH.exists():
+        return []
+    with FINAL_JSON_PATH.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return payload if isinstance(payload, list) else []
+
+
+def _write_structured_dataset(items: list[dict]) -> None:
+    FINAL_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with FINAL_JSON_PATH.open("w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+
+def _replace_structured_document(document_id: str, items: list[dict]) -> None:
+    remaining = [
+        item
+        for item in _read_structured_dataset()
+        if str(item.get("document_id") or "") != str(document_id)
+    ]
+    _write_structured_dataset([*remaining, *items])
+
+
+def _delete_structured_document(document_id: str) -> None:
+    removed = [
+        item
+        for item in _read_structured_dataset()
+        if str(item.get("document_id") or "") == str(document_id)
+    ]
+    remaining = [
+        item
+        for item in _read_structured_dataset()
+        if str(item.get("document_id") or "") != str(document_id)
+    ]
+    _write_structured_dataset(remaining)
+    for item in removed:
+        source_path = Path(str(item.get("source_path") or "")).resolve()
+        if source_path.is_file() and source_path.parent == PDF_DIR.resolve():
+            source_path.unlink(missing_ok=True)
+
+
+def _replace_document_vectors(document_id: str, structured_items: list[dict]) -> int:
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".json",
+            prefix="rag-incremental-",
+            dir=str(SNAPSHOT_DIR),
+            encoding="utf-8",
+            delete=False,
+        ) as temp_file:
+            json.dump(structured_items, temp_file, ensure_ascii=False, indent=2)
+            temp_path = Path(temp_file.name)
+        return step3.replace_document(document_id, temp_path)
+    finally:
+        if temp_path:
+            temp_path.unlink(missing_ok=True)
+
+
 @app.get("/health")
 def health():
     return {
@@ -548,9 +617,12 @@ def ingest_document(
         global _engine
         _engine = None
         gc.collect()
-        process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
-        step2.build_structured_dataset()
-        chunks = step3.ingest(drop_old=not append)
+        if not document_id:
+            raise ValueError("document_id is required for incremental ingest")
+        step1_path = process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
+        structured_items = step2.parse_step1_json(Path(step1_path))
+        _replace_structured_document(document_id, structured_items)
+        chunks = _replace_document_vectors(document_id, structured_items)
         quality_report = build_quality_report()
         _engine = None
         return IngestResponse(
@@ -563,6 +635,28 @@ def ingest_document(
     except Exception as exc:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/api/rag/documents/{document_id}", response_model=DeleteDocumentResponse)
+def delete_document(document_id: str):
+    global _engine
+    try:
+        _engine = None
+        gc.collect()
+        deleted_chunks = step3.delete_document(document_id)
+        _delete_structured_document(document_id)
+        quality_report = build_quality_report()
+        _engine = None
+        return DeleteDocumentResponse(
+            document_id=document_id,
+            deleted_chunks=deleted_chunks,
+            status="completed",
+            quality_report=quality_report,
+        )
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
 
 @app.post("/api/rag/documents/rebuild", response_model=IngestResponse)
 def rebuild_documents(request: RebuildRequest):

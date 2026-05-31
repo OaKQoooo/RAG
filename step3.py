@@ -8,6 +8,7 @@ Step 3: 向量入库（Chroma 版）优化版
 
 import argparse
 import gc
+import hashlib
 import json
 import os
 import shutil
@@ -161,6 +162,76 @@ def load_documents(json_path: str | Path) -> list[Document]:
                 )
 
     return docs
+
+
+def _embeddings() -> DashScopeEmbeddings:
+    if not DASHSCOPE_API_KEY:
+        raise RuntimeError("缺少 DASHSCOPE_API_KEY 环境变量，无法生成向量。")
+    return DashScopeEmbeddings(
+        model=EMBEDDING_MODEL,
+        dashscope_api_key=DASHSCOPE_API_KEY,
+    )
+
+
+def _vector_store(collection_name: str = COLLECTION_NAME) -> Chroma:
+    ensure_runtime_dirs()
+    return Chroma(
+        collection_name=collection_name,
+        embedding_function=_embeddings(),
+        persist_directory=str(PERSIST_DIR),
+    )
+
+
+def delete_document(document_id: str, collection_name: str = COLLECTION_NAME) -> int:
+    """Delete all vector chunks that belong to one business document."""
+    vector_store = _vector_store(collection_name)
+    existing = vector_store.get(where={"document_id": str(document_id)})
+    ids = existing.get("ids", [])
+    if ids:
+        vector_store.delete(ids=ids)
+    release_chroma_clients()
+    return len(ids)
+
+
+def replace_document(
+    document_id: str,
+    json_path: str | Path,
+    collection_name: str = COLLECTION_NAME,
+) -> int:
+    """Replace one document's vector chunks without rebuilding unrelated documents."""
+    docs = load_documents(json_path)
+    docs = [
+        doc
+        for doc in docs
+        if str(doc.metadata.get("document_id") or "") == str(document_id)
+    ]
+
+    if not docs:
+        delete_document(document_id, collection_name)
+        return 0
+
+    ids = []
+    for index, doc in enumerate(docs):
+        raw_id = "|".join(
+            [
+                str(document_id),
+                str(doc.metadata.get("clause_id") or ""),
+                str(doc.metadata.get("chunk_index") or 0),
+                str(doc.metadata.get("page") or 0),
+                str(index),
+            ]
+        )
+        ids.append(hashlib.sha1(raw_id.encode("utf-8")).hexdigest())
+
+    vector_store = _vector_store(collection_name)
+    existing = vector_store.get(where={"document_id": str(document_id)})
+    old_ids = existing.get("ids", [])
+    vector_store.add_documents(documents=docs, ids=ids)
+    obsolete_ids = [item for item in old_ids if item not in ids]
+    if obsolete_ids:
+        vector_store.delete(ids=obsolete_ids)
+    release_chroma_clients()
+    return len(docs)
 
 
 def ingest(

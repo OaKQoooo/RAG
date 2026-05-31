@@ -116,7 +116,7 @@ public class DocumentController {
         }
 
         if (!savedDocuments.isEmpty()) {
-            rebuildAsync(savedDocuments);
+            ingestAsync(savedDocuments);
         }
 
         return allDocuments;
@@ -140,18 +140,31 @@ public class DocumentController {
             }
         }
         documentRepository.delete(document);
-        rebuildAsync(List.of());
+        deleteVectorsAsync(document.getId());
     }
 
-    private void rebuildAsync(List<KbDocument> affectedDocuments) {
+    private void ingestAsync(List<KbDocument> affectedDocuments) {
         ingestExecutor.submit(() -> {
             List<KbDocument> documentsToUpdate = reloadDocuments(affectedDocuments);
             try {
                 updateDocumentsStatus(documentsToUpdate, "正在入库", null);
-                ragClient.rebuild(activeDocuments(), uploadDir);
+                for (KbDocument document : documentsToUpdate) {
+                    Path filePath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
+                    ragClient.ingest(filePath, document.getId(), document.getUploadedBy(), true);
+                }
                 updateDocumentsStatus(documentsToUpdate, "已完成", null);
             } catch (Exception e) {
                 updateDocumentsStatus(documentsToUpdate, "处理失败", e.getMessage());
+            }
+        });
+    }
+
+    private void deleteVectorsAsync(Long documentId) {
+        ingestExecutor.submit(() -> {
+            try {
+                ragClient.deleteDocument(documentId);
+            } catch (Exception e) {
+                System.err.println("Failed to delete RAG vectors for document " + documentId + ": " + e.getMessage());
             }
         });
     }
@@ -160,13 +173,6 @@ public class DocumentController {
         return documents.stream()
                 .map(KbDocument::getId)
                 .flatMap(id -> documentRepository.findById(id).stream())
-                .toList();
-    }
-
-    private List<KbDocument> activeDocuments() {
-        return documentRepository.findAll()
-                .stream()
-                .filter(doc -> doc.getStoredName() != null && !doc.getStoredName().isBlank())
                 .toList();
     }
 

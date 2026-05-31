@@ -14,6 +14,7 @@ const ragDebugResults = document.getElementById('rag-debug-results');
 const ragQualityRefresh = document.getElementById('rag-quality-refresh');
 const ragQualityMetrics = document.getElementById('rag-quality-metrics');
 const ragQualityDuplicates = document.getElementById('rag-quality-duplicates');
+const ragQualityCrossDocument = document.getElementById('rag-quality-cross-document');
 const ragQualityLongTexts = document.getElementById('rag-quality-long-texts');
 const ragQualityStatus = document.getElementById('rag-quality-status');
 let adminDocumentRows = [];
@@ -322,8 +323,19 @@ function renderQualityChipList(element, items = []) {
     return;
   }
   element.innerHTML = items
-    .map((item) => `<span>${escapeHtml(item)}</span>`)
+    .map((item) => `<span>${escapeHtml(formatQualityChip(item))}</span>`)
     .join('');
+}
+
+function formatQualityChip(item) {
+  if (typeof item !== 'object' || item === null) return item;
+  if (item.document_key) {
+    return `${item.document_key} · ${item.clause_id} × ${item.count}`;
+  }
+  if (item.document_count) {
+    return `${item.clause_id} · ${item.document_count} 份文档`;
+  }
+  return JSON.stringify(item);
 }
 
 function renderQualityLongTexts(items = []) {
@@ -345,7 +357,8 @@ function renderQualityReport(report = {}) {
   if (ragQualityMetrics) {
     ragQualityMetrics.innerHTML = [
       qualityMetric('条文节点', report.total_clauses ?? '-'),
-      qualityMetric('重复条文号', report.duplicate_clause_id_count ?? '-', report.duplicate_clause_id_count ? 'warn' : ''),
+      qualityMetric('文档内重复', report.duplicate_within_document_count ?? report.duplicate_clause_id_count ?? '-', report.duplicate_clause_id_count ? 'danger' : ''),
+      qualityMetric('跨文档同编号', report.duplicate_across_documents_count ?? '-'),
       qualityMetric('空内容', report.empty_content_count ?? '-', report.empty_content_count ? 'danger' : ''),
       qualityMetric('缺失 page', report.missing_page_count ?? '-', report.missing_page_count ? 'danger' : ''),
       qualityMetric('缺失 bbox', report.missing_bbox_count ?? '-', report.missing_bbox_count ? 'danger' : ''),
@@ -353,6 +366,7 @@ function renderQualityReport(report = {}) {
     ].join('');
   }
   renderQualityChipList(ragQualityDuplicates, report.sample_duplicate_clause_ids || []);
+  renderQualityChipList(ragQualityCrossDocument, report.sample_cross_document_clause_ids || []);
   renderQualityLongTexts(report.sample_long_texts || []);
 }
 
