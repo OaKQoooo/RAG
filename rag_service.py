@@ -13,6 +13,7 @@ import threading
 import traceback
 from datetime import datetime
 from pathlib import Path
+from time import time
 from typing import Any, NoReturn, Optional, Sequence
 
 import chromadb
@@ -46,6 +47,7 @@ from rag_config import (
     PDF_DIR,
     RERANK_MODEL,
     SNAPSHOT_DIR,
+    SNAPSHOT_RETENTION_DAYS,
     ensure_runtime_dirs,
 )
 from step1 import process_single_pdf
@@ -62,6 +64,7 @@ _last_operation: dict[str, Any] = {
     "message": "服务已启动，尚未执行写操作。",
     "updated_at": None,
 }
+_last_snapshot_cleanup_at = 0.0
 
 
 def _classify_rag_error(exc: Exception) -> tuple[str, str, int]:
@@ -101,6 +104,25 @@ def _record_operation(action: str, status: str, message: str, **details: Any) ->
         "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         **details,
     }
+
+
+def cleanup_snapshot_cache(force: bool = False) -> int:
+    global _last_snapshot_cleanup_at
+    now = time()
+    if not force and now - _last_snapshot_cleanup_at < 3600:
+        return 0
+
+    _last_snapshot_cleanup_at = now
+    cutoff = now - max(0, SNAPSHOT_RETENTION_DAYS) * 24 * 60 * 60
+    deleted = 0
+    for path in SNAPSHOT_DIR.glob("*.png"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink(missing_ok=True)
+                deleted += 1
+        except OSError:
+            continue
+    return deleted
 
 
 SYSTEM_PROMPT = (
@@ -159,6 +181,7 @@ class ReferenceItem(BaseModel):
     clause_id: str
     chapter: str = ""
     page: int = 1
+    document_page: Optional[str] = None
     bbox_json: str = "[]"
     image_url: Optional[str] = None
     content_preview: str = ""
@@ -182,6 +205,7 @@ class RebuildDocument(BaseModel):
     document_id: Optional[str] = None
     uploaded_by: Optional[str] = None
     file_path: str
+    page_offset: Optional[int] = None
 
 
 class RebuildRequest(BaseModel):
@@ -298,6 +322,7 @@ def build_pdf_snapshot(
     bbox_json: str,
     source_path: Optional[str] = None,
 ) -> Optional[str]:
+    cleanup_snapshot_cache()
     pdf_path = _resolve_pdf_path(source_name, source_path)
     if not pdf_path:
         return None
@@ -373,13 +398,14 @@ class RagEngine:
             source_file = str(m.get("source_file", ""))
             clause_id = str(m.get("clause_id", ""))
             page = int(m.get("page") or 1)
+            document_page = str(m.get("document_page") or "") or None
             key = (source_file, clause_id, page, bbox_json)
 
             parts.append(
                 f"【规范：{source_file}】\n"
                 f"【章节：{m.get('chapter', '')}】\n"
                 f"【条款：{clause_id}】\n"
-                f"【页码：{page}】\n"
+                f"【文档页码：{document_page or page}】\n"
                 f"【内容】：{doc.page_content}"
             )
             if key not in seen:
@@ -390,6 +416,7 @@ class RagEngine:
                         clause_id=clause_id,
                         chapter=str(m.get("chapter", "")),
                         page=page,
+                        document_page=document_page,
                         bbox_json=bbox_json,
                         image_url=build_pdf_snapshot(
                             source_file,
@@ -529,6 +556,7 @@ def fallback_suggestions(refs: list[ReferenceItem]) -> list[str]:
 
 
 ensure_runtime_dirs()
+cleanup_snapshot_cache(force=True)
 app = FastAPI(title="Dam Standard RAG Service", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -773,6 +801,7 @@ def ingest_document(
     file: UploadFile = File(...),
     document_id: Optional[str] = Form(default=None),
     uploaded_by: Optional[str] = Form(default=None),
+    page_offset: Optional[int] = Form(default=None),
     append: bool = Form(default=False),
 ):
     file_name = Path(file.filename or "").name
@@ -792,7 +821,12 @@ def ingest_document(
                 shutil.copyfileobj(file.file, out)
 
             previous_dataset = _read_structured_dataset()
-            step1_path = process_single_pdf(dest, document_id=document_id, uploaded_by=uploaded_by)
+            step1_path = process_single_pdf(
+                dest,
+                document_id=document_id,
+                uploaded_by=uploaded_by,
+                page_offset=page_offset,
+            )
             structured_items = step2.parse_step1_json(Path(step1_path))
             quality_report = _validate_structured_document(document_id, structured_items, previous_dataset)
             candidate_dataset = [*_without_structured_document(previous_dataset, document_id), *structured_items]
@@ -886,6 +920,7 @@ def rebuild_documents(request: RebuildRequest):
                     output_folder=STEP1_OUTPUT_DIR,
                     document_id=doc.document_id,
                     uploaded_by=doc.uploaded_by,
+                    page_offset=doc.page_offset,
                 )
 
             with tempfile.NamedTemporaryFile(

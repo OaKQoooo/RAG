@@ -4,6 +4,9 @@ __pycache__/
 
 # Local runtime data
 runtime/
+all_docs_final.json
+step1_outputs/
+Dam_Docs/
 
 # Spring Boot / Maven build outputs
 spring-backend/target/
