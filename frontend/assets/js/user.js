@@ -1174,7 +1174,7 @@ async function sendMessage() {
     await loadConversations();
     await refreshDataManagementSummary();
   } catch (error) {
-    updateMessage(pendingMessage, `请求后端失败：${error.message}`);
+    updateMessage(pendingMessage, error.message || '知识库服务暂时不可用，请稍后重试。');
   } finally {
     sendButton.disabled = false;
   }

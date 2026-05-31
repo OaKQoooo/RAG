@@ -110,7 +110,7 @@ public class DocumentController {
                 savedDocuments.add(document);
             } catch (Exception e) {
                 document.setProcessStatus("处理失败");
-                document.setErrorMessage(e.getMessage());
+                document.setErrorMessage(summarizeDiagnostic(e.getMessage()));
                 documentRepository.save(document);
             }
         }
@@ -126,6 +126,20 @@ public class DocumentController {
         KbDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
         deleteDocument(document);
+    }
+
+    protected KbDocument retryDocumentById(Long id) {
+        KbDocument document = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "文档不存在"));
+        Path storedPath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(storedPath)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原始文档文件不存在，请重新上传");
+        }
+        document.setProcessStatus("等待入库");
+        document.setErrorMessage(null);
+        KbDocument saved = documentRepository.save(document);
+        ingestAsync(List.of(saved));
+        return saved;
     }
 
     private void deleteDocument(KbDocument document) {
@@ -179,9 +193,16 @@ public class DocumentController {
     private void updateDocumentsStatus(List<KbDocument> documents, String status, String errorMessage) {
         documents.forEach(document -> {
             document.setProcessStatus(status);
-            document.setErrorMessage(errorMessage);
+            document.setErrorMessage(summarizeDiagnostic(errorMessage));
             documentRepository.save(document);
         });
+    }
+
+    private String summarizeDiagnostic(String message) {
+        if (message == null || message.length() <= 900) {
+            return message;
+        }
+        return message.substring(0, 897) + "...";
     }
 
     @PreDestroy

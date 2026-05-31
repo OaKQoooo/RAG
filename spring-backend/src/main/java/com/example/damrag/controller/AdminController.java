@@ -107,10 +107,24 @@ public class AdminController {
         logActivity(
                 admin,
                 "document_delete",
-                "删除文档《" + document.getFileName() + "》并重建知识库",
+                "删除文档《" + document.getFileName() + "》及对应向量",
                 "document",
                 id
         );
+    }
+
+    @PostMapping("/documents/{id}/retry")
+    public KbDocument retryDocument(@RequestHeader(value = "Authorization", required = false) String token, @PathVariable Long id) {
+        User admin = requireAdmin(token);
+        KbDocument document = documentController.retryDocumentById(id);
+        logActivity(
+                admin,
+                "document_retry",
+                "重新提交文档《" + document.getFileName() + "》入库",
+                "document",
+                id
+        );
+        return document;
     }
 
     @GetMapping("/users")

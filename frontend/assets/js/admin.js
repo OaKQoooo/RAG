@@ -140,9 +140,29 @@ function createDeleteButton(onClick) {
   return button;
 }
 
+function createRetryButton(documentId) {
+  const button = document.createElement('button');
+  button.className = 'soft-btn action-btn';
+  button.type = 'button';
+  button.textContent = '重新入库';
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await requestJson(`/admin/documents/${documentId}/retry`, { method: 'POST' });
+      await loadDocuments();
+      await loadActivities();
+    } catch (error) {
+      alert(`重新入库失败：${error.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  return button;
+}
+
 async function deleteAdminDocument(documentId, fileName) {
   const confirmed = window.confirm(
-    `确认删除文档《${fileName}》吗？\n\n删除后系统会重新构建知识库，过程可能需要一段时间。`
+    `确认删除文档《${fileName}》吗？\n\n删除后系统会同步移除该文档对应的向量数据。`
   );
   if (!confirmed) return;
 
@@ -180,6 +200,9 @@ function renderAdminUploadList(documents = []) {
     `;
     const actions = document.createElement('div');
     actions.className = 'row-actions';
+    if (String(doc.processStatus || '').includes('失败')) {
+      actions.appendChild(createRetryButton(doc.id));
+    }
     actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
     row.appendChild(actions);
     adminUploadList.appendChild(row);
@@ -249,6 +272,9 @@ function renderAdminDocumentTable(rows = []) {
     const actionCell = document.createElement('td');
     const actions = document.createElement('div');
     actions.className = 'row-actions';
+    if (String(doc.processStatus || '').includes('失败')) {
+      actions.appendChild(createRetryButton(doc.id));
+    }
     actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
     actionCell.appendChild(actions);
     tr.append(actionCell);
@@ -470,6 +496,21 @@ function renderRagDebugResults(results = []) {
   });
 }
 
+async function ragDebugError(response) {
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text);
+    const detail = payload.detail || {};
+    if (typeof detail === 'object') {
+      const code = detail.error_code || 'RAG_ERROR';
+      return `[${code}] ${detail.message || 'RAG 服务调用失败'}\n${detail.detail || ''}`.trim();
+    }
+  } catch {
+    // Keep the raw response when the service does not return structured JSON.
+  }
+  return text || `RAG HTTP ${response.status}`;
+}
+
 async function runRagDebugSearch() {
   if (!ragDebugQuestion || !ragDebugRun) return;
   const question = ragDebugQuestion.value.trim();
@@ -492,7 +533,7 @@ async function runRagDebugSearch() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, topK })
     });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) throw new Error(await ragDebugError(response));
     const data = await response.json();
     renderRagDebugResults(data.results || []);
     if (ragDebugStatus) {

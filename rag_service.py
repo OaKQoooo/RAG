@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, NoReturn, Optional, Sequence
 
 import fitz
 import requests
@@ -52,6 +52,34 @@ from step1 import process_single_pdf
 INITIAL_RETRIEVAL_K = 15
 RERANK_TOP_N = 5
 RERANK_THRESHOLD = 0.05
+
+
+def _classify_rag_error(exc: Exception) -> tuple[str, str, int]:
+    detail = str(exc)
+    normalized = detail.lower()
+    if any(marker in normalized for marker in ("arrearage", "overdue-payment", "account is in good standing")):
+        return "MODEL_ACCOUNT_ARREARAGE", "模型服务账户状态异常，请联系管理员检查服务额度。", 503
+    if any(marker in normalized for marker in ("invalid api key", "invalidapikey", "authentication", "unauthorized")):
+        return "MODEL_AUTH_FAILED", "模型服务认证失败，请联系管理员检查服务配置。", 503
+    if any(marker in normalized for marker in ("permission denied", "access denied", "forbidden")):
+        return "MODEL_PERMISSION_DENIED", "当前模型服务权限不足，请联系管理员检查模型授权。", 503
+    if any(marker in normalized for marker in ("timeout", "timed out")):
+        return "MODEL_TIMEOUT", "模型服务响应超时，请稍后重试。", 504
+    if any(marker in normalized for marker in ("connection refused", "connection error", "failed to establish")):
+        return "MODEL_UNAVAILABLE", "模型服务暂时不可用，请稍后重试。", 503
+    return "RAG_INTERNAL_ERROR", "知识库服务处理失败，请稍后重试。", 500
+
+
+def _raise_rag_http_error(exc: Exception) -> NoReturn:
+    error_code, message, status_code = _classify_rag_error(exc)
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "error_code": error_code,
+            "message": message,
+            "detail": str(exc),
+        },
+    ) from exc
 
 
 SYSTEM_PROMPT = (
@@ -585,7 +613,7 @@ def chat(request: ChatRequest):
     try:
         return get_engine().ask(request)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _raise_rag_http_error(exc)
 
 
 @app.post("/api/rag/debug/search")
@@ -596,7 +624,7 @@ def debug_search(request: DebugSearchRequest):
             "results": get_engine().debug_search(request),
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _raise_rag_http_error(exc)
 
 
 @app.post("/api/rag/documents/ingest", response_model=IngestResponse)
@@ -634,7 +662,7 @@ def ingest_document(
         )
     except Exception as exc:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _raise_rag_http_error(exc)
 
 
 @app.delete("/api/rag/documents/{document_id}", response_model=DeleteDocumentResponse)
@@ -655,7 +683,7 @@ def delete_document(document_id: str):
         )
     except Exception as exc:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _raise_rag_http_error(exc)
 
 
 @app.post("/api/rag/documents/rebuild", response_model=IngestResponse)
@@ -694,4 +722,4 @@ def rebuild_documents(request: RebuildRequest):
         )
     except Exception as exc:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        _raise_rag_http_error(exc)
