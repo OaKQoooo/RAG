@@ -29,8 +29,8 @@ let adminDocumentPollTimer = null;
 const RAG_SERVICE_BASE = window.RAG_SERVICE_BASE || 'http://127.0.0.1:8000';
 
 const loginUser = currentUser();
-if (window.DAM_RAG_LOGIN_REQUIRED || !loginUser || loginUser.role !== 'admin') {
-  window.location.href = './index.html';
+if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !loginUser || loginUser.role !== 'admin') {
+  window.location.replace('./index.html');
   throw new Error('Login required');
 }
 
@@ -799,8 +799,22 @@ if (ragOpsRefresh) {
   ragOpsRefresh.addEventListener('click', loadOperationalStatus);
 }
 
-loadOverview();
-loadActivities();
-loadDocuments();
-loadUsers();
-loadQualityReport();
+function initializeAdminPage() {
+  document.documentElement.classList.remove('auth-checking');
+  loadOverview();
+  loadActivities();
+  loadDocuments();
+  loadUsers();
+  loadQualityReport();
+}
+
+(window.DAM_RAG_AUTH_READY || Promise.resolve(loginUser))
+  .then((user) => {
+    if (!user || user.role !== 'admin' || window.DAM_RAG_LOGIN_REQUIRED) {
+      clearSession();
+      window.location.replace('./index.html');
+      return;
+    }
+    initializeAdminPage();
+  })
+  .catch(() => {});
