@@ -77,28 +77,42 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-function renderMessageMarkdown(value) {
+function renderInlineMarkdown(value) {
   return escapeHtml(value)
-    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\r?\n/g, '<br>');
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
 }
 
-function renderEvidenceMarkdown(value) {
+function renderMarkdownWithTables(value, tableClass = '') {
   const lines = String(value || '').replace(/\r/g, '').split('\n');
   const blocks = [];
   let index = 0;
 
   const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
+  const splitPrefixedTableLine = (line) => {
+    const markerIndex = line.indexOf('|');
+    if (markerIndex <= 0) return null;
+    const prefix = line.slice(0, markerIndex).trim();
+    const tableLine = line.slice(markerIndex).trim();
+    return prefix && isTableLine(tableLine) ? { prefix, tableLine } : null;
+  };
   const isSeparatorLine = (line) => {
     const cells = line.trim().replace(/^\||\|$/g, '').split('|');
-    return cells.length > 0 && cells.every((cell) => /^\s*:?-{3,}:?\s*$/.test(cell));
+    return cells.length > 0 && cells.every((cell) => {
+      const normalized = cell.replace(/\s/g, '').replace(/[—–−]/g, '-');
+      return /^:?-+:?$/.test(normalized);
+    });
   };
   const tableCells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-  const renderCell = (cell) => escapeHtml(cell).replace(/&lt;br&gt;/gi, '<br>');
+  const renderCell = (cell) => renderInlineMarkdown(cell).replace(/&lt;br&gt;/gi, '<br>');
 
   while (index < lines.length) {
-    if (isTableLine(lines[index]) && index + 1 < lines.length && isSeparatorLine(lines[index + 1])) {
-      const headers = tableCells(lines[index]);
+    const prefixedTable = splitPrefixedTableLine(lines[index]);
+    const tableHeader = prefixedTable?.tableLine || lines[index];
+    if (isTableLine(tableHeader) && index + 1 < lines.length && isSeparatorLine(lines[index + 1])) {
+      if (prefixedTable) {
+        blocks.push(`<p>${renderInlineMarkdown(prefixedTable.prefix)}</p>`);
+      }
+      const headers = tableCells(tableHeader);
       const rows = [];
       index += 2;
       while (index < lines.length && isTableLine(lines[index])) {
@@ -106,8 +120,8 @@ function renderEvidenceMarkdown(value) {
         index += 1;
       }
       blocks.push(`
-        <div class="evidence-table-wrap">
-          <table class="evidence-table">
+        <div class="markdown-table-wrap ${tableClass}">
+          <table class="markdown-table">
             <thead><tr>${headers.map((cell) => `<th>${renderCell(cell)}</th>`).join('')}</tr></thead>
             <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderCell(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
           </table>
@@ -117,16 +131,28 @@ function renderEvidenceMarkdown(value) {
     }
 
     const textLines = [];
-    while (index < lines.length && !(isTableLine(lines[index]) && index + 1 < lines.length && isSeparatorLine(lines[index + 1]))) {
+    while (index < lines.length) {
+      const candidate = splitPrefixedTableLine(lines[index])?.tableLine || lines[index];
+      if (isTableLine(candidate) && index + 1 < lines.length && isSeparatorLine(lines[index + 1])) {
+        break;
+      }
       textLines.push(lines[index]);
       index += 1;
     }
     const text = textLines.join('\n').trim();
     if (text) {
-      blocks.push(`<p>${escapeHtml(text).replace(/\r?\n/g, '<br>')}</p>`);
+      blocks.push(`<p>${renderInlineMarkdown(text).replace(/\r?\n/g, '<br>')}</p>`);
     }
   }
   return blocks.join('');
+}
+
+function renderMessageMarkdown(value) {
+  return renderMarkdownWithTables(value, 'message-table-wrap');
+}
+
+function renderEvidenceMarkdown(value) {
+  return renderMarkdownWithTables(value, 'evidence-table-wrap');
 }
 
 function activeUser() {

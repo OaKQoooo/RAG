@@ -940,6 +940,15 @@ select {
   font-weight: 800;
 }
 
+.message-content {
+  display: grid;
+  gap: 10px;
+}
+
+.message-content p {
+  margin: 0;
+}
+
 .user-message {
   justify-self: end;
   background: linear-gradient(135deg, #224f5c, #2b6d78);
@@ -1186,7 +1195,7 @@ select {
   margin: 0;
 }
 
-.evidence-table-wrap {
+.markdown-table-wrap {
   margin-top: 8px;
   overflow: auto;
   border: 1px solid var(--line);
@@ -1194,7 +1203,7 @@ select {
   background: #fff;
 }
 
-.evidence-table {
+.markdown-table {
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
@@ -1202,8 +1211,8 @@ select {
   font-size: 12px;
 }
 
-.evidence-table th,
-.evidence-table td {
+.markdown-table th,
+.markdown-table td {
   min-width: 92px;
   max-width: 220px;
   padding: 7px 8px;
@@ -1213,9 +1222,14 @@ select {
   word-break: break-word;
 }
 
-.evidence-table th {
+.markdown-table th {
   background: rgba(31, 93, 107, 0.08);
   font-weight: 800;
+}
+
+.message-table-wrap {
+  max-width: min(100%, 920px);
+  margin-top: 0;
 }
 
 .evidence-nav {
