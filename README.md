@@ -137,3 +137,44 @@ mvn spring-boot:run -Dspring-boot.run.profiles=h2
 - `qa_message.reference_json`：历史会话恢复时可重新显示右侧原文截图和引用依据。
 - `kb_clause.page_width/page_height`：保存 PDF 页面尺寸，便于后续前端按比例绘制高亮框。
 - `kb_clause.bbox_json`、`kb_chunk.bbox_json` 改为大字段：原 `varchar(255)` 对多行 bbox 或复杂表格定位偏短。
+
+## 问答检索策略
+
+RAG 服务采用“向量召回 + 本地关键词召回 + DashScope rerank + 本地融合排序”的流程。新入库向量会同时索引规范名称、标准层级、完整章节路径、条款号和正文，以改善规范编号、章节和条款类问题的召回效果。
+
+融合排序会将标准层级作为小幅加分项。默认顺序为：强制性国家标准、推荐性国家标准、行业标准、地方标准、团体标准、企业或公司标准、项目文件、未识别层级。该顺序仅用于检索排序，不代表系统自动作出法律效力或适用性判断。用户明确提到“国标”“行标”“公司标准”或具体标准编号时，对应候选会获得额外加分。
+
+可通过环境变量调整主要参数：
+
+```text
+RAG_INITIAL_RETRIEVAL_K=40
+RAG_LEXICAL_RETRIEVAL_K=20
+RAG_RERANK_TOP_N=20
+RAG_RERANK_THRESHOLD=0.05
+RAG_PRIORITY_NATIONAL_MANDATORY=1.00
+RAG_PRIORITY_NATIONAL_RECOMMENDED=0.90
+RAG_PRIORITY_INDUSTRY=0.75
+RAG_PRIORITY_LOCAL=0.65
+RAG_PRIORITY_GROUP=0.50
+RAG_PRIORITY_ENTERPRISE=0.40
+RAG_PRIORITY_PROJECT=0.30
+```
+
+更新检索策略后，需要重新入库或执行全量重建，已有向量才能获得完整的索引元数据。管理端调试检索结果中的 `_vector_score`、`_rerank_score`、`_lexical_score` 和 `_fused_score` 可用于分析排序效果。
+
+建议维护一份人工标注的检索评测集，例如：
+
+```json
+[
+  {
+    "question": "施工导流有哪些基本规定？",
+    "expected_clause_ids": ["4.1.1", "4.1.2"]
+  }
+]
+```
+
+模型服务可用时，执行以下命令检查 `Hit@K` 和 `MRR`：
+
+```powershell
+python evaluate_retrieval.py retrieval_eval.json --top-k 10
+```

@@ -21,6 +21,14 @@ from langchain_chroma import Chroma
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_core.documents import Document
 
+from rag_ranking import (
+    build_index_text,
+    classify_standard_level,
+    describe_standard_level,
+    extract_standard_code,
+    normalize_standard_name,
+)
+
 try:
     from chromadb.api.shared_system_client import SharedSystemClient
 except Exception:  # pragma: no cover - Chroma internal API may vary by version
@@ -43,6 +51,7 @@ COLLECTION_NAME = MILVUS_COLLECTION
 JSON_PATH = FINAL_JSON_PATH
 PERSIST_DIR = CHROMA_DIR
 CHUNK_SIZE = 1000   # 单条文本最大字符数
+CHUNK_OVERLAP = 120
 
 
 def release_chroma_clients() -> None:
@@ -76,12 +85,58 @@ def reset_chroma_dir(path: Path, retries: int = 8, delay: float = 0.5) -> None:
             time.sleep(delay)
 
 
-def flatten_items(node: dict, items: list) -> None:
-    """递归展平层级结构，提取所有叶子条款节点"""
+def flatten_items(node: dict, items: list, chapter_path: tuple[str, ...] = ()) -> None:
+    """递归展平层级结构，并为叶子条款保留完整章节路径。"""
+    current_path = chapter_path
+    title = str(node.get("title") or "").strip()
+    if title and node.get("type") in {"L1", "L2"}:
+        current_path = (*chapter_path, title)
     if "id" in node:
-        items.append(node)
+        copied = dict(node)
+        copied["_chapter_path"] = " > ".join(current_path)
+        items.append(copied)
     for sub in node.get("sub_articles", []):
-        flatten_items(sub, items)
+        flatten_items(sub, items, current_path)
+
+
+def _hard_split(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split a punctuation-free oversized fragment with a small context overlap."""
+    if len(text) <= chunk_size:
+        return [text]
+    step = max(1, chunk_size - max(0, min(overlap, chunk_size - 1)))
+    return [text[start : start + chunk_size] for start in range(0, len(text), step) if text[start : start + chunk_size]]
+
+
+def split_content(content: str) -> list[str]:
+    """Split long clauses by paragraph, sentence and finally fixed-size windows."""
+    chunks = []
+    for para in re.split(r"\n{2,}", content):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) <= CHUNK_SIZE:
+            chunks.append(para)
+            continue
+
+        buffer = ""
+        for sentence in re.split(r"(?<=[。；;])", para):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            if len(sentence) > CHUNK_SIZE:
+                if buffer:
+                    chunks.append(buffer)
+                    buffer = ""
+                chunks.extend(_hard_split(sentence))
+            elif len(buffer) + len(sentence) <= CHUNK_SIZE:
+                buffer += sentence
+            else:
+                if buffer:
+                    chunks.append(buffer)
+                buffer = sentence
+        if buffer:
+            chunks.append(buffer)
+    return chunks
 
 
 def load_documents(json_path: str | Path) -> list[Document]:
@@ -93,8 +148,11 @@ def load_documents(json_path: str | Path) -> list[Document]:
 
     for l1 in data:
         source = l1.get("source", "Unknown")
+        display_source = normalize_standard_name(source)
+        standard_code = extract_standard_code(display_source)
+        standard_level = classify_standard_level(display_source)
         source_path = l1.get("source_path") or ""
-        chapter = l1.get("title", "Unknown")
+        root_chapter = l1.get("title", "Unknown")
         document_id = l1.get("document_id")
         uploaded_by = l1.get("uploaded_by")
 
@@ -102,6 +160,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
         flatten_items(l1, items)
 
         for item in items:
+            chapter = item.get("_chapter_path") or root_chapter
             content = str(item.get("content", "")).strip()
             if not content:
                 continue
@@ -112,42 +171,23 @@ def load_documents(json_path: str | Path) -> list[Document]:
             bbox_json = item.get("bbox_json") or json.dumps(item.get("final_bbox", []), ensure_ascii=False)
             bbox = bbox_json[:1000]
 
-            # ==========================
-            # 优化切分逻辑：先按段落拆，再按句号/分号拆
-            # ==========================
-            paras = re.split(r'\n{2,}', content)
-            chunks = []
-            for para in paras:
-                para = para.strip()
-                if not para:
-                    continue
-                if len(para) <= CHUNK_SIZE:
-                    chunks.append(para)
-                else:
-                    # 按句号/分号拆
-                    sentences = re.split(r'(?<=[。；;])', para)
-                    buf = ""
-                    for s in sentences:
-                        s = s.strip()
-                        if len(buf) + len(s) <= CHUNK_SIZE:
-                            buf += s
-                        else:
-                            if buf:
-                                chunks.append(buf)
-                            buf = s
-                    if buf:
-                        chunks.append(buf)
+            chunks = split_content(content)
 
             for idx, chunk in enumerate(chunks):
                 cid = f"{clause_id}_p{idx}" if len(chunks) > 1 else clause_id
                 docs.append(
                     Document(
-                        page_content=chunk,
+                        page_content=build_index_text(display_source, chapter, clause_id, chunk),
                         metadata={
                             "document_id": str(document_id) if document_id is not None else "",
                             "uploaded_by": str(uploaded_by) if uploaded_by is not None else "",
-                            "clause_key": f"{source}::{clause_id}"[:500],
-                            "source_file": source[:500],
+                            "clause_key": f"{display_source}::{clause_id}"[:500],
+                            "source_file": display_source[:500],
+                            "source_original": str(source)[:500],
+                            "standard_code": standard_code[:100],
+                            "standard_level": standard_level,
+                            "standard_level_label": describe_standard_level(standard_level),
+                            "raw_content": chunk,
                             "source_path": str(source_path)[:1000],
                             "clause_id": cid[:100],
                             "chapter": chapter[:500],
