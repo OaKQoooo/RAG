@@ -168,15 +168,15 @@ public class DocumentController {
     private void ingestAsync(List<KbDocument> affectedDocuments) {
         ingestExecutor.submit(() -> {
             List<KbDocument> documentsToUpdate = reloadDocuments(affectedDocuments);
-            try {
-                updateDocumentsStatus(documentsToUpdate, "正在入库", null);
-                for (KbDocument document : documentsToUpdate) {
+            for (KbDocument document : documentsToUpdate) {
+                updateDocumentsStatus(List.of(document), "正在入库", null);
+                try {
                     Path filePath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
                     ragClient.ingest(filePath, document.getId(), document.getUploadedBy(), true, document.getPageOffset());
+                    updateDocumentsStatus(List.of(document), "已完成", null);
+                } catch (Exception e) {
+                    updateDocumentsStatus(List.of(document), "处理失败", e.getMessage());
                 }
-                updateDocumentsStatus(documentsToUpdate, "已完成", null);
-            } catch (Exception e) {
-                updateDocumentsStatus(documentsToUpdate, "处理失败", e.getMessage());
             }
         });
     }

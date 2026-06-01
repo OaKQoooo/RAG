@@ -17,7 +17,7 @@ class Step2TableParsingTest(unittest.TestCase):
                     "page_width": 600,
                     "page_height": 800,
                     "elements": [
-                        self.text("1 总则", [20, 20, 100, 40]),
+                        self.text("1 总则", [180, 20, 260, 40]),
                         self.text("1.0.1 正文条款。", [20, 50, 200, 70]),
                         self.text("附录B 检查项目、质量标准及检验方法", [20, 100, 300, 120]),
                         self.text("表B.1 检查项目", [20, 140, 180, 160]),
@@ -45,6 +45,38 @@ class Step2TableParsingTest(unittest.TestCase):
         self.assertIn("| 序号 | 项目 |", table["content"])
         self.assertEqual("table", table["evidence_regions"][-1]["kind"])
         self.assertEqual([20, 180, 500, 300], table["evidence_regions"][-1]["bbox"])
+
+    def test_keeps_numbered_lists_and_clause_references_inside_current_clause(self):
+        payload = {
+            "source_pdf": "SLT551-2024示例规范.pdf",
+            "pages": [
+                {
+                    "page": 1,
+                    "document_page": "1",
+                    "page_width": 600,
+                    "page_height": 800,
+                    "elements": [
+                        self.text("1 总则", [180, 20, 260, 40]),
+                        self.text("1.0.1 正文条款应符合下列规定：", [40, 50, 240, 70]),
+                        self.text("1 第一项要求。", [70, 80, 180, 100]),
+                        self.text("2 按照下列条款执行。", [70, 110, 210, 130]),
+                        self.text("4.2.3 6。", [140, 140, 210, 160]),
+                        self.text("1.0.2 第二条正文。", [40, 170, 180, 190]),
+                    ],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.json"
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            result = parse_step1_json(path)
+
+        self.assertEqual(1, len(result))
+        clauses = result[0]["sub_articles"]
+        self.assertEqual(["1.0.1", "1.0.2"], [item["id"] for item in clauses])
+        self.assertIn("1 第一项要求。", clauses[0]["content"])
+        self.assertIn("4.2.3 6。", clauses[0]["content"])
 
     @staticmethod
     def text(value, bbox):

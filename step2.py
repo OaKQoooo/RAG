@@ -25,7 +25,7 @@ INPUT_FOLDER = STEP1_OUTPUT_DIR
 OUTPUT_FILE = FINAL_JSON_PATH
 
 # L1: 识别 1 总则, 第一章, 附录A 等
-L1_PATTERN = r"^(附录[A-Z]|[1-9]\d{0,1}|第[一二三四五六七八九十]+[章篇])[\s|\.]*\s*([\u4e00-\u9fa5A-Za-z0-9\s、，,（）()·\-]{2,60})$"
+L1_PATTERN = r"^(附录[A-Z]|[1-9]\d{0,1}(?=\s)|第[一二三四五六七八九十]+[章篇])[\s.]*([\u4e00-\u9fa5A-Za-z0-9\s、，,（）()·\-]{2,60})$"
 # L2: 识别 1.1 一般规定
 L2_PATTERN = r"^([A-Z\d]+\.[1-9]\d{0,1})\s+([\u4e00-\u9fa5\s]+)$"
 # L3: 识别 1.0.1 或 1.1.1
@@ -74,6 +74,24 @@ def _append_l3(cur_l1: dict, cur_l2: dict | None, item: dict) -> None:
         cur_l2["sub_articles"].append(item)
     else:
         cur_l1["sub_articles"].append(item)
+
+
+def _is_l1_heading(match: re.Match, element: dict, page_width) -> bool:
+    """Keep numbered list items from being mistaken for centered chapter titles."""
+    prefix = match.group(1)
+    if not prefix.isdigit():
+        return True
+    try:
+        left = float(element["bbox"][0])
+        width = float(page_width)
+    except (KeyError, TypeError, ValueError):
+        return True
+    return width <= 0 or left >= width * 0.25
+
+
+def _is_l3_heading(match: re.Match) -> bool:
+    """A real clause heading should contain substantive text after its identifier."""
+    return bool(re.search(r"[\u4e00-\u9fa5]", match.group(2)))
 
 
 def calculate_final_bbox(item: dict) -> None:
@@ -162,7 +180,7 @@ def parse_step1_json(path: Path) -> list[dict]:
                     "document_id": document_id,
                     "uploaded_by": uploaded_by,
                 }
-                if m1:
+                if m1 and _is_l1_heading(m1, el, page_width):
                     cur_l1 = {"title": raw_line, "sub_articles": [], "type": "L1", **common}
                     doc_structure.append(cur_l1)
                     cur_l2 = cur_l3 = None
@@ -173,7 +191,7 @@ def parse_step1_json(path: Path) -> list[dict]:
                         doc_structure.append(cur_l1)
                     cur_l1["sub_articles"].append(cur_l2)
                     cur_l3 = None
-                elif m3:
+                elif m3 and (_is_l3_heading(m3) or cur_l3 is None):
                     num, rest = m3.groups()
                     if not cur_l1:
                         cur_l1 = {"title": "未识别章节", "sub_articles": [], "type": "L1", **common}

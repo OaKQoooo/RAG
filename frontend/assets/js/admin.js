@@ -209,20 +209,73 @@ function createPageOffsetButton(doc) {
   return button;
 }
 
-async function deleteAdminDocument(documentId, fileName) {
-  const confirmed = window.confirm(
-    `确认删除文档《${fileName}》吗？\n\n删除后系统会同步移除该文档对应的向量数据。`
-  );
-  if (!confirmed) return;
+function ensureDeleteConfirmModal() {
+  let modal = document.getElementById('document-delete-confirm-modal');
+  if (modal) return modal;
 
+  modal = document.createElement('div');
+  modal.className = 'modal-backdrop hide';
+  modal.id = 'document-delete-confirm-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'document-delete-confirm-title');
+  modal.innerHTML = `
+    <div class="settings-modal">
+      <div class="modal-header">
+        <h3 id="document-delete-confirm-title">确认删除文档</h3>
+        <button class="icon-text-btn" type="button" data-action="cancel-document-delete" aria-label="关闭">×</button>
+      </div>
+      <p class="modal-phone-text" data-delete-document-name></p>
+      <p class="settings-message" data-delete-document-status></p>
+      <div class="modal-actions">
+        <button class="soft-btn" type="button" data-action="cancel-document-delete">取消</button>
+        <button class="danger-btn" type="button" data-action="confirm-document-delete">确认删除</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal || event.target.closest('[data-action="cancel-document-delete"]')) {
+      modal.classList.add('hide');
+    }
+  });
+  return modal;
+}
+
+function showDeleteConfirmModal(documentId, fileName) {
+  const modal = ensureDeleteConfirmModal();
+  const name = modal.querySelector('[data-delete-document-name]');
+  const status = modal.querySelector('[data-delete-document-status]');
+  const confirmButton = modal.querySelector('[data-action="confirm-document-delete"]');
+  const nextButton = confirmButton.cloneNode(true);
+
+  name.textContent = `确认删除文档《${fileName}》吗？删除后系统会同步移除对应的向量数据。`;
+  status.textContent = '';
+  nextButton.disabled = false;
+  nextButton.textContent = '确认删除';
+  confirmButton.replaceWith(nextButton);
+  nextButton.addEventListener('click', () => deleteAdminDocument(documentId, modal));
+  modal.classList.remove('hide');
+}
+
+async function deleteAdminDocument(documentId, modal) {
+  const confirmButton = modal.querySelector('[data-action="confirm-document-delete"]');
+  const status = modal.querySelector('[data-delete-document-status]');
+
+  confirmButton.disabled = true;
+  confirmButton.textContent = '正在删除';
+  status.textContent = '';
   try {
     await requestJson(`/admin/documents/${documentId}`, { method: 'DELETE' });
     await loadDocuments();
     await loadOverview();
     await loadActivities();
-    alert('文档已删除');
+    modal.classList.add('hide');
   } catch (error) {
-    alert(`删除失败：${error.message}`);
+    status.textContent = `删除失败：${error.message}`;
+    confirmButton.disabled = false;
+    confirmButton.textContent = '确认删除';
   }
 }
 
@@ -253,7 +306,7 @@ function renderAdminUploadList(documents = []) {
       actions.appendChild(createRetryButton(doc.id));
     }
     actions.appendChild(createPageOffsetButton(doc));
-    actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
+    actions.appendChild(createDeleteButton(() => showDeleteConfirmModal(doc.id, doc.fileName)));
     row.appendChild(actions);
     adminUploadList.appendChild(row);
   });
@@ -326,7 +379,7 @@ function renderAdminDocumentTable(rows = []) {
       actions.appendChild(createRetryButton(doc.id));
     }
     actions.appendChild(createPageOffsetButton(doc));
-    actions.appendChild(createDeleteButton(() => deleteAdminDocument(doc.id, doc.fileName)));
+    actions.appendChild(createDeleteButton(() => showDeleteConfirmModal(doc.id, doc.fileName)));
     actionCell.appendChild(actions);
     tr.append(actionCell);
 
