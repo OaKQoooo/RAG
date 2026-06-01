@@ -139,6 +139,29 @@ def split_content(content: str) -> list[str]:
     return chunks
 
 
+def select_evidence_region(item: dict, chunk: str) -> dict:
+    """Choose the PDF region that best represents a chunk, preferring tables."""
+    regions = item.get("evidence_regions") or []
+    if not regions:
+        return {
+            "page": item.get("page", 1),
+            "document_page": item.get("document_page") or "",
+            "page_width": item.get("page_width") or 0,
+            "page_height": item.get("page_height") or 0,
+            "bbox": item.get("final_bbox") or [],
+            "kind": "text",
+            "content": "",
+        }
+
+    table_regions = [region for region in regions if region.get("kind") == "table"]
+    if "\n|" in chunk and table_regions:
+        return max(table_regions, key=lambda region: len(str(region.get("content") or "")))
+    return next(
+        (region for region in regions if region.get("page") == item.get("page")),
+        regions[0],
+    )
+
+
 def load_documents(json_path: str | Path) -> list[Document]:
     """将 all_docs_final.json 转换为 LangChain Document 列表"""
     with open(json_path, "r", encoding="utf-8") as f:
@@ -166,15 +189,15 @@ def load_documents(json_path: str | Path) -> list[Document]:
                 continue
 
             clause_id = str(item.get("id", "N/A"))
-            page = int(item.get("page", 1))
-            document_page = str(item.get("document_page") or "")
-            bbox_json = item.get("bbox_json") or json.dumps(item.get("final_bbox", []), ensure_ascii=False)
-            bbox = bbox_json[:1000]
-
             chunks = split_content(content)
 
             for idx, chunk in enumerate(chunks):
                 cid = f"{clause_id}_p{idx}" if len(chunks) > 1 else clause_id
+                evidence_region = select_evidence_region(item, chunk)
+                page = int(evidence_region.get("page") or item.get("page") or 1)
+                document_page = str(evidence_region.get("document_page") or item.get("document_page") or "")
+                bbox = json.dumps(evidence_region.get("bbox") or item.get("final_bbox") or [], ensure_ascii=False)[:1000]
+                table_markdown = str(evidence_region.get("content") or "") if evidence_region.get("kind") == "table" else ""
                 docs.append(
                     Document(
                         page_content=build_index_text(display_source, chapter, clause_id, chunk),
@@ -197,8 +220,10 @@ def load_documents(json_path: str | Path) -> list[Document]:
                             "document_page": document_page,
                             "bbox": bbox,
                             "bbox_json": bbox,
-                            "page_width": item.get("page_width") or 0,
-                            "page_height": item.get("page_height") or 0,
+                            "page_width": evidence_region.get("page_width") or item.get("page_width") or 0,
+                            "page_height": evidence_region.get("page_height") or item.get("page_height") or 0,
+                            "evidence_kind": evidence_region.get("kind") or "text",
+                            "table_markdown": table_markdown,
                         },
                     )
                 )

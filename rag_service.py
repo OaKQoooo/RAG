@@ -480,7 +480,7 @@ class RagEngine:
                             bbox_json,
                             str(m.get("source_path") or ""),
                         ) if enable_evidence else None,
-                        content_preview=content[:240],
+                        content_preview=str(m.get("table_markdown") or content),
                         document_id=str(m.get("document_id")) if m.get("document_id") is not None else None,
                     )
                 )

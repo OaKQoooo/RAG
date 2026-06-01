@@ -83,6 +83,52 @@ function renderMessageMarkdown(value) {
     .replace(/\r?\n/g, '<br>');
 }
 
+function renderEvidenceMarkdown(value) {
+  const lines = String(value || '').replace(/\r/g, '').split('\n');
+  const blocks = [];
+  let index = 0;
+
+  const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
+  const isSeparatorLine = (line) => {
+    const cells = line.trim().replace(/^\||\|$/g, '').split('|');
+    return cells.length > 0 && cells.every((cell) => /^\s*:?-{3,}:?\s*$/.test(cell));
+  };
+  const tableCells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+  const renderCell = (cell) => escapeHtml(cell).replace(/&lt;br&gt;/gi, '<br>');
+
+  while (index < lines.length) {
+    if (isTableLine(lines[index]) && index + 1 < lines.length && isSeparatorLine(lines[index + 1])) {
+      const headers = tableCells(lines[index]);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && isTableLine(lines[index])) {
+        rows.push(tableCells(lines[index]));
+        index += 1;
+      }
+      blocks.push(`
+        <div class="evidence-table-wrap">
+          <table class="evidence-table">
+            <thead><tr>${headers.map((cell) => `<th>${renderCell(cell)}</th>`).join('')}</tr></thead>
+            <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderCell(cell)}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </div>
+      `);
+      continue;
+    }
+
+    const textLines = [];
+    while (index < lines.length && !(isTableLine(lines[index]) && index + 1 < lines.length && isSeparatorLine(lines[index + 1]))) {
+      textLines.push(lines[index]);
+      index += 1;
+    }
+    const text = textLines.join('\n').trim();
+    if (text) {
+      blocks.push(`<p>${escapeHtml(text).replace(/\r?\n/g, '<br>')}</p>`);
+    }
+  }
+  return blocks.join('');
+}
+
 function activeUser() {
   return currentUser();
 }
@@ -465,7 +511,7 @@ function renderEvidence(references = []) {
       <div class="evidence-page ${references.length > 1 ? 'clickable' : ''}" ${references.length > 1 ? 'title="点击查看下一条原文"' : ''}>${preview}</div>
       <div class="evidence-info">
         <p class="evidence-source">原文${activeEvidenceIndex + 1}：《${escapeHtml(sourceName)}》 ｜ 页码：${escapeHtml(documentPage)} ｜ 条款：${escapeHtml(clauseId)}</p>
-        ${contentPreview ? `<p class="evidence-snippet">${escapeHtml(contentPreview)}</p>` : ''}
+        ${contentPreview ? `<div class="evidence-snippet">${renderEvidenceMarkdown(contentPreview)}</div>` : ''}
       </div>
       <div class="evidence-nav">
         <button class="soft-btn evidence-nav-btn" type="button" data-evidence-nav="prev" ${activeEvidenceIndex === 0 ? 'disabled' : ''}>上一条</button>

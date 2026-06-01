@@ -1176,10 +1176,46 @@ select {
 
 .evidence-snippet {
   margin-top: 6px !important;
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  max-height: 360px;
+  overflow: auto;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.evidence-snippet p {
+  margin: 0;
+}
+
+.evidence-table-wrap {
+  margin-top: 8px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.evidence-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.evidence-table th,
+.evidence-table td {
+  min-width: 92px;
+  max-width: 220px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.evidence-table th {
+  background: rgba(31, 93, 107, 0.08);
+  font-weight: 800;
 }
 
 .evidence-nav {

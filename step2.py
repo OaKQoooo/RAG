@@ -25,11 +25,13 @@ INPUT_FOLDER = STEP1_OUTPUT_DIR
 OUTPUT_FILE = FINAL_JSON_PATH
 
 # L1: 识别 1 总则, 第一章, 附录A 等
-L1_PATTERN = r"^(附录[A-Z]|[1-9]\d{0,1}|第[一二三四五六七八九十]+[章篇])[\s|\.]*\s*([\u4e00-\u9fa5\s]{2,30})$"
+L1_PATTERN = r"^(附录[A-Z]|[1-9]\d{0,1}|第[一二三四五六七八九十]+[章篇])[\s|\.]*\s*([\u4e00-\u9fa5A-Za-z0-9\s、，,（）()·\-]{2,60})$"
 # L2: 识别 1.1 一般规定
 L2_PATTERN = r"^([A-Z\d]+\.[1-9]\d{0,1})\s+([\u4e00-\u9fa5\s]+)$"
 # L3: 识别 1.0.1 或 1.1.1
 L3_PATTERN = r"^([A-Z\d]+\.\d+\.\d+)\s*(.*)$"
+# TABLE: 识别 表12.3.3、表B.1 等
+TABLE_TITLE_PATTERN = r"^(表\s*(?:[A-Z]\.)?\d+(?:\.\d+)*)\s*(.*)$"
 
 
 def clean_source_name(filename: str) -> str:
@@ -50,10 +52,38 @@ def table_to_markdown(table) -> str:
     return md + "\n"
 
 
+def _region(page: int, document_page, page_width, page_height, bbox, kind: str, content: str = "") -> dict:
+    return {
+        "page": page,
+        "document_page": document_page,
+        "page_width": page_width,
+        "page_height": page_height,
+        "bbox": list(bbox),
+        "kind": kind,
+        "content": content,
+    }
+
+
+def _append_region(item: dict, region: dict) -> None:
+    item.setdefault("evidence_regions", []).append(region)
+    item.setdefault("bboxes", []).append(region["bbox"])
+
+
+def _append_l3(cur_l1: dict, cur_l2: dict | None, item: dict) -> None:
+    if cur_l2:
+        cur_l2["sub_articles"].append(item)
+    else:
+        cur_l1["sub_articles"].append(item)
+
+
 def calculate_final_bbox(item: dict) -> None:
-    if "bboxes" in item and item["bboxes"]:
-        xs = [b[0] for b in item["bboxes"]] + [b[2] for b in item["bboxes"]]
-        ys = [b[1] for b in item["bboxes"]] + [b[3] for b in item["bboxes"]]
+    regions = item.get("evidence_regions") or []
+    primary_page = item.get("page")
+    page_regions = [region for region in regions if region.get("page") == primary_page]
+    bboxes = [region["bbox"] for region in page_regions if region.get("bbox")] or item.get("bboxes", [])
+    if bboxes:
+        xs = [b[0] for b in bboxes] + [b[2] for b in bboxes]
+        ys = [b[1] for b in bboxes] + [b[3] for b in bboxes]
         item["final_bbox"] = [min(xs), min(ys), max(xs), max(ys)]
         item["bbox_json"] = json.dumps(item["final_bbox"], ensure_ascii=False)
         item.pop("bboxes")
@@ -124,6 +154,7 @@ def parse_step1_json(path: Path) -> list[dict]:
                 m1 = re.match(L1_PATTERN, raw_line)
                 m2 = re.match(L2_PATTERN, raw_line)
                 m3 = re.match(L3_PATTERN, raw_line)
+                table_title = re.match(TABLE_TITLE_PATTERN, raw_line)
 
                 common = {
                     "source": source_display,
@@ -154,21 +185,52 @@ def parse_step1_json(path: Path) -> list[dict]:
                         "document_page": document_page,
                         "page_width": page_width,
                         "page_height": page_height,
-                        "bboxes": [el["bbox"]],
+                        "bboxes": [],
+                        "evidence_regions": [],
                         "type": "L3",
                         **common,
                     }
-                    if cur_l2:
-                        cur_l2["sub_articles"].append(cur_l3)
-                    else:
-                        cur_l1["sub_articles"].append(cur_l3)
+                    _append_region(
+                        cur_l3,
+                        _region(p_num, document_page, page_width, page_height, el["bbox"], "text", raw_line),
+                    )
+                    _append_l3(cur_l1, cur_l2, cur_l3)
+                elif table_title:
+                    if not cur_l1:
+                        cur_l1 = {"title": "未识别章节", "sub_articles": [], "type": "L1", **common}
+                        doc_structure.append(cur_l1)
+                    table_id = table_title.group(1).replace(" ", "")
+                    cur_l3 = {
+                        "id": table_id,
+                        "content": raw_line,
+                        "page": p_num,
+                        "document_page": document_page,
+                        "page_width": page_width,
+                        "page_height": page_height,
+                        "bboxes": [],
+                        "evidence_regions": [],
+                        "type": "TABLE",
+                        **common,
+                    }
+                    _append_region(
+                        cur_l3,
+                        _region(p_num, document_page, page_width, page_height, el["bbox"], "text", raw_line),
+                    )
+                    _append_l3(cur_l1, cur_l2, cur_l3)
                 elif cur_l3:
                     cur_l3["content"] += "\n" + raw_line
-                    cur_l3["bboxes"].append(el["bbox"])
+                    _append_region(
+                        cur_l3,
+                        _region(p_num, document_page, page_width, page_height, el["bbox"], "text", raw_line),
+                    )
 
             elif el["type"] == "table" and content_started and cur_l3:
-                cur_l3["content"] += table_to_markdown(el["data"])
-                cur_l3["bboxes"].append(el["bbox"])
+                markdown = table_to_markdown(el["data"])
+                cur_l3["content"] += markdown
+                _append_region(
+                    cur_l3,
+                    _region(p_num, document_page, page_width, page_height, el["bbox"], "table", markdown),
+                )
 
     for l1 in doc_structure:
         calculate_final_bbox(l1)
