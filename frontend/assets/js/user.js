@@ -1481,11 +1481,13 @@ if (uploadButton) {
         headers: authHeaders(),
         body: formData
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await readResponseError(response, '上传失败'));
       await loadMyDocuments();
-      alert('文档已提交入库流程');
+      showAppNotice('文档已提交入库流程', { title: '上传成功' });
     } catch (error) {
-      alert(`上传失败：${error.message}`);
+      showAppNotice(error.message, { title: '上传失败' });
+    } finally {
+      input.value = '';
     }
   });
 }

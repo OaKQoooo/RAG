@@ -1,10 +1,11 @@
 package com.example.damrag.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "kb_document")
+@Table(name = "kb_document", indexes = @Index(name = "idx_kb_document_file_sha256", columnList = "file_sha256"))
 public class KbDocument {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -15,6 +16,10 @@ public class KbDocument {
 
     @Column(name = "stored_name", nullable = false)
     private String storedName;
+
+    @JsonIgnore
+    @Column(name = "file_sha256", length = 64)
+    private String fileSha256;
 
     @Column(name = "uploaded_by")
     private Long uploadedBy;
@@ -57,6 +62,8 @@ public class KbDocument {
     public void setFileName(String fileName) { this.fileName = fileName; }
     public String getStoredName() { return storedName; }
     public void setStoredName(String storedName) { this.storedName = storedName; }
+    public String getFileSha256() { return fileSha256; }
+    public void setFileSha256(String fileSha256) { this.fileSha256 = fileSha256; }
     public Long getUploadedBy() { return uploadedBy; }
     public void setUploadedBy(Long uploadedBy) { this.uploadedBy = uploadedBy; }
     public String getUploadRole() { return uploadRole; }

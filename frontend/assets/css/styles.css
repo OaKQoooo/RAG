@@ -2001,6 +2001,10 @@ select {
   margin: 0;
 }
 
+.app-notice-actions {
+  justify-content: flex-end;
+}
+
 .icon-text-btn {
   width: 36px;
   height: 36px;

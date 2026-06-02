@@ -810,13 +810,13 @@ if (adminUploadButton) {
         headers: authHeaders(),
         body: formData
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await readResponseError(response, '上传失败'));
       await loadDocuments();
       await loadOverview();
       await loadActivities();
-      alert('管理员文档已提交入库流程');
+      showAppNotice('管理员文档已提交入库流程', { title: '上传成功' });
     } catch (error) {
-      alert(`上传失败：${error.message}`);
+      showAppNotice(error.message, { title: '上传失败' });
     } finally {
       input.value = '';
     }

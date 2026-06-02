@@ -87,6 +87,60 @@ async function requestJson(path, options = {}) {
   return text ? text : null;
 }
 
+function responseErrorMessage(text, fallback = '请求失败') {
+  if (!text) return fallback;
+  try {
+    const payload = JSON.parse(text);
+    return payload.message || payload.error || payload.detail || fallback;
+  } catch {
+    return text;
+  }
+}
+
+async function readResponseError(response, fallback = '请求失败') {
+  return responseErrorMessage(await response.text(), `${fallback}：${response.status}`);
+}
+
+function ensureAppNoticeModal() {
+  let modal = document.getElementById('app-notice-modal');
+  if (modal) return modal;
+
+  modal = document.createElement('div');
+  modal.className = 'modal-backdrop hide';
+  modal.id = 'app-notice-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'app-notice-title');
+  modal.innerHTML = `
+    <div class="settings-modal app-notice-dialog">
+      <div class="modal-header">
+        <h3 id="app-notice-title">提示</h3>
+        <button class="icon-text-btn" type="button" data-action="close-app-notice" aria-label="关闭">×</button>
+      </div>
+      <p class="modal-phone-text" data-app-notice-message></p>
+      <div class="modal-actions app-notice-actions">
+        <button class="primary-btn" type="button" data-action="close-app-notice">知道了</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal || event.target.closest('[data-action="close-app-notice"]')) {
+      modal.classList.add('hide');
+    }
+  });
+  return modal;
+}
+
+function showAppNotice(message, { title = '提示' } = {}) {
+  const modal = ensureAppNoticeModal();
+  modal.querySelector('#app-notice-title').textContent = title;
+  modal.querySelector('[data-app-notice-message]').textContent = message;
+  modal.classList.remove('hide');
+  modal.querySelector('[data-action="close-app-notice"]')?.focus();
+}
+
 async function endSession() {
   try {
     if (localStorage.getItem('dam_rag_token')) {

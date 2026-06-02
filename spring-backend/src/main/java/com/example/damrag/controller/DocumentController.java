@@ -7,11 +7,19 @@ import com.example.damrag.service.AuthService;
 import com.example.damrag.service.RagClient;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.springframework.beans.factory.annotation.Value;
@@ -78,7 +86,7 @@ public class DocumentController {
         deleteDocument(document);
     }
 
-    protected List<KbDocument> upload(MultipartFile[] files, Long userId, String role, String visibility) {
+    protected synchronized List<KbDocument> upload(MultipartFile[] files, Long userId, String role, String visibility) {
         try {
             Files.createDirectories(uploadDir);
         } catch (IOException e) {
@@ -87,17 +95,28 @@ public class DocumentController {
 
         List<KbDocument> allDocuments = new ArrayList<>();
         List<KbDocument> savedDocuments = new ArrayList<>();
+        List<String> fileSha256s = new ArrayList<>();
+        Set<String> requestHashes = new HashSet<>();
 
         for (MultipartFile file : files) {
             if (file.isEmpty() || file.getOriginalFilename() == null || !file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持非空 PDF 文件");
             }
+            String fileSha256 = sha256(file);
+            if (!requestHashes.add(fileSha256) || documentAlreadyExists(fileSha256)) {
+                throw duplicateDocument();
+            }
+            fileSha256s.add(fileSha256);
+        }
 
+        for (int index = 0; index < files.length; index++) {
+            MultipartFile file = files[index];
             String storedName = storedName(userId, role, file.getOriginalFilename());
             Path storedPath = uploadDir.resolve(storedName);
             KbDocument document = new KbDocument();
             document.setFileName(file.getOriginalFilename());
             document.setStoredName(storedName);
+            document.setFileSha256(fileSha256s.get(index));
             document.setUploadedBy(userId);
             document.setUploadRole(role);
             document.setVisibility(visibility);
@@ -211,6 +230,62 @@ public class DocumentController {
             return message;
         }
         return message.substring(0, 897) + "...";
+    }
+
+    private boolean documentAlreadyExists(String fileSha256) {
+        if (documentRepository.existsByFileSha256(fileSha256)) {
+            return true;
+        }
+        for (KbDocument document : documentRepository.findAll()) {
+            if (document.getFileSha256() != null && !document.getFileSha256().isBlank()) {
+                continue;
+            }
+            Path storedPath = uploadDir.resolve(document.getStoredName()).toAbsolutePath().normalize();
+            if (!Files.isRegularFile(storedPath)) {
+                continue;
+            }
+            try {
+                String existingSha256 = sha256(storedPath);
+                document.setFileSha256(existingSha256);
+                documentRepository.save(document);
+                if (fileSha256.equals(existingSha256)) {
+                    return true;
+                }
+            } catch (IOException e) {
+                System.err.println("Failed to hash legacy document " + document.getId() + ": " + e.getMessage());
+            }
+        }
+        return false;
+    }
+
+    private String sha256(MultipartFile file) {
+        try {
+            return sha256(file.getInputStream());
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "读取上传文档失败");
+        }
+    }
+
+    private String sha256(Path path) throws IOException {
+        try (InputStream input = Files.newInputStream(path)) {
+            return sha256(input);
+        }
+    }
+
+    private String sha256(InputStream input) {
+        try (InputStream source = input;
+             DigestInputStream digestInput = new DigestInputStream(source, MessageDigest.getInstance("SHA-256"))) {
+            digestInput.transferTo(OutputStream.nullOutputStream());
+            return HexFormat.of().formatHex(digestInput.getMessageDigest().digest());
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "读取上传文档失败");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private ResponseStatusException duplicateDocument() {
+        return new ResponseStatusException(HttpStatus.CONFLICT, "相同内容的文档已存在，请勿重复上传");
     }
 
     @PreDestroy
