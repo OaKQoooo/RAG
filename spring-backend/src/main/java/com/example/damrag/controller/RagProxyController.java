@@ -37,7 +37,7 @@ public class RagProxyController {
     }
 
     @GetMapping("/snapshots/{fileName:.+}")
-    public ResponseEntity<byte[]> snapshot(@PathVariable String fileName) {
+    public ResponseEntity<byte[]> snapshot(@PathVariable("fileName") String fileName) {
         if (!fileName.matches("[a-f0-9]{40}\\.png")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid snapshot file name");
         }
