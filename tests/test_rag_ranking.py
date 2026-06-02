@@ -4,6 +4,7 @@ from rag_ranking import (
     classify_standard_level,
     extract_standard_code,
     lexical_relevance_score,
+    merge_candidates,
     normalize_standard_name,
     rank_documents,
 )
@@ -86,6 +87,15 @@ class RankingTest(unittest.TestCase):
         ranked = rank_documents([first, second], "construction requirements")
 
         self.assertEqual(1, len(ranked))
+
+    def test_merges_same_clause_from_repeated_uploads_before_reranking(self):
+        first = self.document("DL/T 5128-2021 example", "first", clause_key="same")
+        second = self.document("DL/T 5128-2021 example", "second", clause_key="same")
+        second.metadata["document_id"] = "2"
+
+        merged = merge_candidates([first], [second])
+
+        self.assertEqual(1, len(merged))
 
     def test_lexical_score_rewards_specific_chapter_match(self):
         chapter_match = self.document("DL/T 5128-2021 示例规范", "施工准备", chapter="4.2 导流")

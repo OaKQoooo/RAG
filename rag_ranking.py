@@ -246,7 +246,7 @@ def _float_metadata(metadata: dict[str, Any], name: str, default: float = 0.0) -
 def _document_key(document: Any) -> tuple[str, str, str]:
     metadata = getattr(document, "metadata", {}) or {}
     return (
-        str(metadata.get("document_id") or ""),
+        str(metadata.get("source_file") or metadata.get("source_original") or metadata.get("document_id") or ""),
         str(metadata.get("clause_key") or metadata.get("clause_id") or ""),
         str(metadata.get("chunk_index") or "0"),
     )

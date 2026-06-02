@@ -79,19 +79,39 @@ def has_bbox(node: dict) -> bool:
     return True
 
 
+def get_node_type(node: dict) -> str:
+    return str(node.get("type") or node.get("node_type") or "").strip().upper()
+
+
+def get_bbox_key(node: dict) -> str:
+    value = node.get("bbox_json") or node.get("final_bbox") or node.get("bbox") or ""
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip()
+
+
+def get_duplicate_key(node: dict) -> tuple[str, ...]:
+    """Treat separate table parts as valid while keeping exact duplicates visible."""
+    document_key = get_document_key(node)
+    clause_id = get_clause_id(node)
+    if get_node_type(node) == "TABLE":
+        return document_key, clause_id, "TABLE", str(node.get("page") or ""), get_bbox_key(node)
+    return document_key, clause_id, "CLAUSE"
+
+
 def build_quality_report_for_data(data: Any, json_path: Path | None = None) -> dict[str, Any]:
     nodes: list[dict] = []
     walk_nodes(data, nodes)
 
     clause_ids = [get_clause_id(node) for node in nodes if get_clause_id(node)]
     duplicate_clause_keys = [
-        (get_document_key(node), get_clause_id(node))
+        get_duplicate_key(node)
         for node in nodes
         if get_clause_id(node)
     ]
     duplicate_within_document = [
-        {"document_key": document_key, "clause_id": clause_id, "count": count}
-        for (document_key, clause_id), count in Counter(duplicate_clause_keys).items()
+        {"document_key": key[0], "clause_id": key[1], "node_type": key[2], "count": count}
+        for key, count in Counter(duplicate_clause_keys).items()
         if count > 1
     ]
     duplicate_across_documents = [

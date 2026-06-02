@@ -107,8 +107,11 @@ def _hard_split(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
     return [text[start : start + chunk_size] for start in range(0, len(text), step) if text[start : start + chunk_size]]
 
 
-def split_content(content: str) -> list[str]:
+def split_content(content: str, preserve_table: bool = False) -> list[str]:
     """Split long clauses by paragraph, sentence and finally fixed-size windows."""
+    if preserve_table:
+        return _hard_split(content.strip())
+
     chunks = []
     for para in re.split(r"\n{2,}", content):
         para = para.strip()
@@ -182,6 +185,9 @@ def load_documents(json_path: str | Path) -> list[Document]:
         items: list[dict] = []
         flatten_items(l1, items)
 
+        clause_totals = Counter(str(item.get("id", "N/A")) for item in items)
+        clause_occurrences: Counter[str] = Counter()
+
         for item in items:
             chapter = item.get("_chapter_path") or root_chapter
             content = str(item.get("content", "")).strip()
@@ -189,7 +195,12 @@ def load_documents(json_path: str | Path) -> list[Document]:
                 continue
 
             clause_id = str(item.get("id", "N/A"))
-            chunks = split_content(content)
+            occurrence = clause_occurrences[clause_id]
+            clause_occurrences[clause_id] += 1
+            is_table = item.get("type") == "TABLE"
+            table_part = occurrence + 1 if is_table and clause_totals[clause_id] > 1 else 0
+            clause_part = f"#part{table_part}" if table_part else ""
+            chunks = split_content(content, preserve_table=item.get("type") == "TABLE")
 
             for idx, chunk in enumerate(chunks):
                 cid = f"{clause_id}_p{idx}" if len(chunks) > 1 else clause_id
@@ -204,7 +215,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
                         metadata={
                             "document_id": str(document_id) if document_id is not None else "",
                             "uploaded_by": str(uploaded_by) if uploaded_by is not None else "",
-                            "clause_key": f"{display_source}::{clause_id}"[:500],
+                            "clause_key": f"{display_source}::{clause_id}{clause_part}"[:500],
                             "source_file": display_source[:500],
                             "source_original": str(source)[:500],
                             "standard_code": standard_code[:100],
@@ -216,6 +227,7 @@ def load_documents(json_path: str | Path) -> list[Document]:
                             "chapter": chapter[:500],
                             "chunk_index": idx,
                             "node_type": item.get("type", "L3"),
+                            "table_part": table_part,
                             "page": page,
                             "document_page": document_page,
                             "bbox": bbox,
