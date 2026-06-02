@@ -1,4 +1,4 @@
-const API_BASE = window.API_BASE || 'http://localhost:8080/api';
+const API_BASE = window.API_BASE || '/api';
 const appShellForAuth = document.querySelector('.app-shell');
 
 if (appShellForAuth) {
