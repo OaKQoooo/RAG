@@ -68,6 +68,25 @@ class RankingTest(unittest.TestCase):
 
         self.assertIn(other, ranked[:3])
 
+    def test_deduplicates_repeated_chunks_from_one_clause_by_default(self):
+        docs = [
+            self.document("DL/T 5128-2021 example", f"chunk-{index}", clause_key="same", chunk_index=index)
+            for index in range(3)
+        ]
+
+        ranked = rank_documents(docs, "construction requirements")
+
+        self.assertEqual(1, len(ranked))
+
+    def test_deduplicates_same_clause_from_repeated_uploads(self):
+        first = self.document("DL/T 5128-2021 example", "first", clause_id="6.5.5_p0", clause_key="DL/T 5128-2021 example::6.5.5")
+        second = self.document("DL/T 5128-2021 example", "second", clause_id="6.5.5_p1", clause_key="DL/T 5128-2021 example::6.5.5")
+        second.metadata["document_id"] = "2"
+
+        ranked = rank_documents([first, second], "construction requirements")
+
+        self.assertEqual(1, len(ranked))
+
     def test_lexical_score_rewards_specific_chapter_match(self):
         chapter_match = self.document("DL/T 5128-2021 示例规范", "施工准备", chapter="4.2 导流")
         generic_content = self.document("DL/T 5128-2021 示例规范", "施工准备中的基本规定", chapter="附录")

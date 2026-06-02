@@ -271,7 +271,7 @@ def merge_candidates(*candidate_groups: Iterable[Any]) -> list[Any]:
     return list(merged.values())
 
 
-def rank_documents(documents: Iterable[Any], query: str, max_chunks_per_clause: int = 2) -> list[Any]:
+def rank_documents(documents: Iterable[Any], query: str, max_chunks_per_clause: int = 1) -> list[Any]:
     """Fuse semantic, lexical and standard-level signals, then diversify clauses."""
     query_levels = _query_level_intent(query)
     query_code = extract_standard_code(query)
@@ -305,17 +305,19 @@ def rank_documents(documents: Iterable[Any], query: str, max_chunks_per_clause: 
     ranked.sort(key=lambda item: _float_metadata(getattr(item, "metadata", {}) or {}, "_fused_score"), reverse=True)
 
     selected = []
-    overflow = []
     clause_counts: Counter[tuple[str, str]] = Counter()
     for document in ranked:
         metadata = getattr(document, "metadata", {}) or {}
         clause_key = (
-            str(metadata.get("document_id") or ""),
-            str(metadata.get("clause_key") or re.sub(r"_p\d+$", "", str(metadata.get("clause_id") or ""))),
+            str(metadata.get("source_file") or metadata.get("source_original") or metadata.get("document_id") or ""),
+            re.sub(
+                r"_p\d+$",
+                "",
+                str(metadata.get("clause_key") or metadata.get("clause_id") or ""),
+            ),
         )
         if clause_counts[clause_key] >= max_chunks_per_clause:
-            overflow.append(document)
             continue
         clause_counts[clause_key] += 1
         selected.append(document)
-    return [*selected, *overflow]
+    return selected
