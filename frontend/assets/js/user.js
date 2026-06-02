@@ -386,7 +386,7 @@ async function changePassword() {
 
 async function clearConversationHistory() {
   const user = activeUser();
-  if (!window.confirm('确认清空所有会话历史吗？')) return;
+  if (!await showAppConfirm('确认清空所有会话历史吗？此操作无法撤销。', '清空会话历史')) return;
   if (clearHistoryButton) clearHistoryButton.disabled = true;
   showSettingsMessage(historyMessage, '清理中...');
   try {
@@ -408,7 +408,7 @@ async function deleteSelectedConversations() {
   const conversationIds = [...selectedConversationIds];
   if (!conversationIds.length) return;
 
-  const confirmed = window.confirm(`确认删除选中的 ${conversationIds.length} 条会话吗？`);
+  const confirmed = await showAppConfirm(`确认删除选中的 ${conversationIds.length} 条会话吗？此操作无法撤销。`, '删除会话');
   if (!confirmed) return;
 
   if (deleteSelectedConversationsButton) deleteSelectedConversationsButton.disabled = true;
@@ -1017,7 +1017,7 @@ async function exportChatRecords(exportAll = false) {
     }
 
     if (!conversations.length) {
-      alert('暂无可导出的会话记录');
+      showAppAlert('暂无可导出的会话记录', '导出提示');
       return;
     }
 
@@ -1081,7 +1081,7 @@ async function exportChatRecords(exportAll = false) {
     }
 
     if (detailRows.length === 1) {
-      alert('当前会话暂无可导出的消息');
+      showAppAlert('当前会话暂无可导出的消息', '导出提示');
       return;
     }
 
@@ -1095,7 +1095,7 @@ async function exportChatRecords(exportAll = false) {
     const wordDocument = buildWordDocument(documentTitle, summaryRows, detailRows);
     downloadTextFile(`dam-rag-${fileScope}-${today}.doc`, wordDocument, 'application/msword;charset=utf-8');
   } catch (error) {
-    alert(`导出失败：${error.message}`);
+    showAppAlert(`导出失败：${error.message}`, '导出失败');
   } finally {
     if (exportChatButton) {
       exportChatButton.disabled = false;
@@ -1170,15 +1170,15 @@ function createDeleteButton(onClick) {
 
 async function deleteUserDocument(documentId, fileName) {
   const user = activeUser();
-  const confirmed = window.confirm(`确认删除文档《${fileName}》吗？`);
+  const confirmed = await showAppConfirm(`确认删除文档《${fileName}》吗？删除后将同步移除对应的向量数据。`, '删除文档');
   if (!confirmed) return;
 
   try {
     await requestJson(`/documents/${documentId}`, { method: 'DELETE' });
     await loadMyDocuments();
-    alert('文档已删除');
+    showAppAlert('文档已删除');
   } catch (error) {
-    alert(`删除失败：${error.message}`);
+    showAppAlert(`删除失败：${error.message}`, '删除失败');
   }
 }
 
@@ -1473,9 +1473,9 @@ if (uploadButton) {
       });
       if (!response.ok) throw new Error(await response.text());
       await loadMyDocuments();
-      alert('文档已提交入库流程');
+      showAppAlert('文档已提交入库流程');
     } catch (error) {
-      alert(`上传失败：${error.message}`);
+      showAppAlert(`上传失败：${error.message}`, '上传失败');
     }
   });
 }

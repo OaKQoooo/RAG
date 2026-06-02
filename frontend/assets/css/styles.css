@@ -1989,6 +1989,31 @@ select {
   box-shadow: var(--shadow);
 }
 
+.app-dialog {
+  width: min(440px, 100%);
+  gap: 16px;
+  border-radius: 8px;
+}
+
+.app-dialog-message {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.app-dialog-error {
+  min-height: 0;
+  margin: 0;
+  color: #b54747;
+}
+
+.app-dialog-error:empty {
+  display: none;
+}
+
+.hide {
+  display: none !important;
+}
+
 .modal-header,
 .modal-actions {
   display: flex;
