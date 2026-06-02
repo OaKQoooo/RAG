@@ -163,7 +163,7 @@ function createRetryButton(documentId) {
       await loadDocuments();
       await loadActivities();
     } catch (error) {
-      showAppAlert(`重新入库失败：${error.message}`, '重新入库失败');
+      alert(`重新入库失败：${error.message}`);
     } finally {
       button.disabled = false;
     }
@@ -180,22 +180,16 @@ function createPageOffsetButton(doc) {
     ? '设置文档印刷页码与 PDF 页码的对应关系'
     : `当前页码偏移量：${doc.pageOffset}`;
   button.addEventListener('click', async () => {
-    const pdfPageValue = await showAppPrompt('输入 PDF 阅读器显示的页码，用于定位截图。', {
-      title: '校正 PDF 页码',
-      label: 'PDF 页码',
-      placeholder: '例如：13',
-      validate: (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? '' : '请输入大于 0 的整数'
-    });
-    if (pdfPageValue === null) return;
-    const pdfPage = Number(pdfPageValue);
-    const documentPageValue = await showAppPrompt('输入同一页在文档正文中印刷的页码。', {
-      title: '校正文档页码',
-      label: '文档页码',
-      placeholder: '例如：5',
-      validate: (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? '' : '请输入大于 0 的整数'
-    });
-    if (documentPageValue === null) return;
-    const documentPage = Number(documentPageValue);
+    const pdfPage = Number(window.prompt('请输入 PDF 阅读器显示的页码，例如 13：'));
+    if (!Number.isInteger(pdfPage) || pdfPage <= 0) {
+      alert('PDF 页码必须是大于 0 的整数');
+      return;
+    }
+    const documentPage = Number(window.prompt('请输入该页在文档中印刷的页码，例如 5：'));
+    if (!Number.isInteger(documentPage) || documentPage <= 0) {
+      alert('文档页码必须是大于 0 的整数');
+      return;
+    }
 
     button.disabled = true;
     try {
@@ -205,9 +199,9 @@ function createPageOffsetButton(doc) {
       });
       await loadDocuments();
       await loadActivities();
-      showAppAlert('页码校正已保存，文档正在重新入库');
+      alert('页码校正已保存，文档正在重新入库');
     } catch (error) {
-      showAppAlert(`页码校正失败：${error.message}`, '页码校正失败');
+      alert(`页码校正失败：${error.message}`);
     } finally {
       button.disabled = false;
     }
@@ -780,7 +774,7 @@ function applyUserSearch() {
 
 async function updateUserStatus(user, nextStatus) {
   const actionText = nextStatus === 1 ? '启用' : '禁用';
-  const confirmed = await showAppConfirm(`确认${actionText}用户「${user.username || user.phone}」吗？`, '用户状态变更');
+  const confirmed = window.confirm(`确认${actionText}用户「${user.username || user.phone}」吗？`);
   if (!confirmed) return;
 
   try {
@@ -791,9 +785,9 @@ async function updateUserStatus(user, nextStatus) {
     await loadUsers();
     await loadOverview();
     await loadActivities();
-    showAppAlert(`用户已${actionText}`);
+    alert(`用户已${actionText}`);
   } catch (error) {
-    showAppAlert(`${actionText}失败：${error.message}`, '操作失败');
+    alert(`${actionText}失败：${error.message}`);
   }
 }
 
@@ -820,9 +814,9 @@ if (adminUploadButton) {
       await loadDocuments();
       await loadOverview();
       await loadActivities();
-      showAppAlert('管理员文档已提交入库流程');
+      alert('管理员文档已提交入库流程');
     } catch (error) {
-      showAppAlert(`上传失败：${error.message}`, '上传失败');
+      alert(`上传失败：${error.message}`);
     } finally {
       input.value = '';
     }

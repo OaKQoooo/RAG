@@ -87,128 +87,6 @@ async function requestJson(path, options = {}) {
   return text ? text : null;
 }
 
-function ensureAppDialog() {
-  let modal = document.getElementById('app-dialog-modal');
-  if (modal) return modal;
-
-  modal = document.createElement('div');
-  modal.className = 'modal-backdrop hide';
-  modal.id = 'app-dialog-modal';
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-labelledby', 'app-dialog-title');
-  modal.innerHTML = `
-    <div class="settings-modal app-dialog">
-      <div class="modal-header">
-        <h3 id="app-dialog-title"></h3>
-        <button class="icon-text-btn" type="button" data-app-dialog-action="cancel" aria-label="关闭">x</button>
-      </div>
-      <p class="modal-phone-text app-dialog-message" data-app-dialog-message></p>
-      <label class="modal-field app-dialog-field hide" data-app-dialog-field>
-        <span data-app-dialog-label></span>
-        <input type="text" data-app-dialog-input>
-      </label>
-      <p class="settings-message app-dialog-error" data-app-dialog-error></p>
-      <div class="modal-actions">
-        <button class="soft-btn hide" type="button" data-app-dialog-action="cancel">取消</button>
-        <button class="primary-btn" type="button" data-app-dialog-action="confirm">确定</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-  return modal;
-}
-
-function showAppDialog({
-  title = '提示',
-  message = '',
-  type = 'alert',
-  confirmText = '确定',
-  cancelText = '取消',
-  label = '',
-  value = '',
-  placeholder = '',
-  validate = null
-} = {}) {
-  const modal = ensureAppDialog();
-  const titleElement = modal.querySelector('#app-dialog-title');
-  const messageElement = modal.querySelector('[data-app-dialog-message]');
-  const field = modal.querySelector('[data-app-dialog-field]');
-  const labelElement = modal.querySelector('[data-app-dialog-label]');
-  const input = modal.querySelector('[data-app-dialog-input]');
-  const errorElement = modal.querySelector('[data-app-dialog-error]');
-  const confirmButton = modal.querySelector('[data-app-dialog-action="confirm"]');
-  const cancelButtons = modal.querySelectorAll('[data-app-dialog-action="cancel"]');
-  const footerCancelButton = modal.querySelector('.modal-actions [data-app-dialog-action="cancel"]');
-  const isPrompt = type === 'prompt';
-  const allowsCancel = type !== 'alert';
-
-  titleElement.textContent = title;
-  messageElement.textContent = message;
-  messageElement.classList.toggle('hide', !message);
-  field.classList.toggle('hide', !isPrompt);
-  labelElement.textContent = label;
-  input.value = value;
-  input.placeholder = placeholder;
-  input.type = 'text';
-  errorElement.textContent = '';
-  confirmButton.textContent = confirmText;
-  footerCancelButton.textContent = cancelText;
-  footerCancelButton.classList.toggle('hide', !allowsCancel);
-  modal.classList.remove('hide');
-
-  return new Promise((resolve) => {
-    const close = (result) => {
-      modal.classList.add('hide');
-      confirmButton.removeEventListener('click', confirm);
-      cancelButtons.forEach((button) => button.removeEventListener('click', cancel));
-      modal.removeEventListener('click', backdropCancel);
-      document.removeEventListener('keydown', keydown);
-      resolve(result);
-    };
-    const cancel = () => close(type === 'confirm' ? false : null);
-    const confirm = () => {
-      const result = isPrompt ? input.value.trim() : true;
-      const validationMessage = isPrompt && validate ? validate(result) : '';
-      if (validationMessage) {
-        errorElement.textContent = validationMessage;
-        input.focus();
-        return;
-      }
-      close(result);
-    };
-    const backdropCancel = (event) => {
-      if (event.target === modal && allowsCancel) cancel();
-    };
-    const keydown = (event) => {
-      if (event.key === 'Escape' && allowsCancel) cancel();
-      if (event.key === 'Enter' && (isPrompt || event.target === confirmButton)) confirm();
-    };
-
-    confirmButton.addEventListener('click', confirm);
-    cancelButtons.forEach((button) => button.addEventListener('click', cancel));
-    modal.addEventListener('click', backdropCancel);
-    document.addEventListener('keydown', keydown);
-    window.setTimeout(() => (isPrompt ? input : confirmButton).focus(), 0);
-  });
-}
-
-function showAppAlert(message, title = '提示') {
-  return showAppDialog({ title, message, type: 'alert' });
-}
-
-function showAppConfirm(message, title = '请确认', options = {}) {
-  return showAppDialog({ title, message, type: 'confirm', ...options });
-}
-
-function showAppPrompt(message, options = {}) {
-  return showAppDialog({ title: '请输入', message, type: 'prompt', ...options });
-}
-
-window.showAppAlert = showAppAlert;
-window.showAppConfirm = showAppConfirm;
-window.showAppPrompt = showAppPrompt;
-
 async function endSession() {
   try {
     if (localStorage.getItem('dam_rag_token')) {
@@ -410,7 +288,7 @@ if (loginForm) {
       saveSession(data);
       window.location.href = role === 'admin' ? './admin.html' : './user.html';
     } catch (error) {
-      showAppAlert(`登录失败：${error.message}`, '登录失败');
+      alert(`登录失败：${error.message}`);
     }
   });
 }
@@ -420,7 +298,7 @@ if (registerForm) {
   registerForm.querySelector('.primary-btn')?.addEventListener('click', async () => {
     const [usernameInput, passwordInput, confirmInput] = registerForm.querySelectorAll('input');
     if (passwordInput.value !== confirmInput.value) {
-      showAppAlert('两次输入的密码不一致', '注册提示');
+      alert('两次输入的密码不一致');
       return;
     }
     try {
@@ -434,7 +312,7 @@ if (registerForm) {
       saveSession(data);
       window.location.href = './user.html';
     } catch (error) {
-      showAppAlert(`注册失败：${error.message}`, '注册失败');
+      alert(`注册失败：${error.message}`);
     }
   });
 }
