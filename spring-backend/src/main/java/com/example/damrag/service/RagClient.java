@@ -217,6 +217,12 @@ public class RagClient implements RagGateway {
         if (value == null || value.isBlank()) {
             return value;
         }
+        if (value.startsWith(serviceUrl + "/snapshots/")) {
+            return "/api/rag" + value.substring(serviceUrl.length());
+        }
+        if (value.startsWith("/snapshots/")) {
+            return "/api/rag" + value;
+        }
         if (value.startsWith("http://") || value.startsWith("https://")) {
             return value;
         }

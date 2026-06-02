@@ -510,7 +510,17 @@ function displaySourceName(value = '') {
 }
 
 function referenceImageUrl(ref = {}) {
-  return ref.imageUrl || ref.image_url || '';
+  const value = ref.imageUrl || ref.image_url || '';
+  if (!value) return '';
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.pathname.startsWith('/snapshots/')) {
+      return `/api/rag${url.pathname}`;
+    }
+  } catch {
+    // Keep the original value when it cannot be parsed as a URL.
+  }
+  return value;
 }
 
 function renderEvidence(references = []) {

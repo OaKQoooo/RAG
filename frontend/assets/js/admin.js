@@ -26,7 +26,7 @@ const ragOpsLastOperation = document.getElementById('rag-ops-last-operation');
 let adminDocumentRows = [];
 let adminUserRows = [];
 let adminDocumentPollTimer = null;
-const RAG_SERVICE_BASE = window.RAG_SERVICE_BASE || 'http://127.0.0.1:8000';
+const RAG_SERVICE_BASE = window.RAG_SERVICE_BASE || '/api/rag';
 
 const loginUser = currentUser();
 if (window.DAM_RAG_LOGIN_REQUIRED || !localStorage.getItem('dam_rag_token') || !loginUser || loginUser.role !== 'admin') {
@@ -495,7 +495,7 @@ async function loadOperationalStatus() {
     ragOpsState.className = 'status-badge processing';
   }
   try {
-    const response = await fetch(`${RAG_SERVICE_BASE}/health`);
+    const response = await fetch(`${RAG_SERVICE_BASE}/health`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await response.text());
     renderOperationalStatus(await response.json());
   } catch (error) {
@@ -565,7 +565,7 @@ async function loadQualityReport() {
   if (!ragQualityMetrics) return;
   if (ragQualityStatus) ragQualityStatus.textContent = '正在加载质量报告...';
   try {
-    const response = await fetch(`${RAG_SERVICE_BASE}/api/rag/quality`);
+    const response = await fetch(`${RAG_SERVICE_BASE}/quality`, { headers: authHeaders() });
     if (!response.ok) throw new Error(await response.text());
     const report = await response.json();
     renderQualityReport(report);
@@ -694,9 +694,9 @@ async function runRagDebugSearch() {
   }
 
   try {
-    const response = await fetch(`${RAG_SERVICE_BASE}/api/rag/debug/search`, {
+    const response = await fetch(`${RAG_SERVICE_BASE}/debug/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ question, topK })
     });
     if (!response.ok) throw new Error(await ragDebugError(response));
